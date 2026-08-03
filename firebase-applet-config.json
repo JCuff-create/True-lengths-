@@ -4,7 +4,5 @@
   "apiKey": "AIzaSyDNpgzee71fftvljDWlYPxiolM89N4CbwU",
   "authDomain": "massive-ridge-298sv.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-truelengthssalon-3564fd68-a6c4-46b9-a5f3-006f83dc8618",
-  "storageBucket": "massive-ridge-298sv.firebasestorage.app",
-  "messagingSenderId": "647927642840",
-  "oAuthClientId": "647927642840-i5jtld7uhsi3vaev8uhgq452bhcb61nt.apps.googleusercontent.com"
+  "messagingSenderId": "647927642840"
 }
