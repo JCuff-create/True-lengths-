@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users Collection Security Rules
+    match /users/{userId} {
+      // Allow reading user profiles so salon directory, customer list & staff status can be loaded
+      allow read: if true;
+
+      // Creation rule:
+      // - Self-registration MUST be 'customer' with 'active' status OR 'stylist' with 'pending' status
+      // - Unrestricted for owner email or authenticated owner profile
+      allow create: if request.auth != null && (
+        (request.auth.uid == userId && request.resource.data.role == 'customer' && request.resource.data.status == 'active') ||
+        (request.auth.uid == userId && request.resource.data.role == 'stylist' && request.resource.data.status == 'pending') ||
+        request.auth.token.email == 'carolyn.owner@truelengths.com'
+      );
+
+      // Update rule:
+      // - Users editing their own profile CANNOT change role, status, or salonId
+      // - Owners can update any profile fields (e.g. approving staff or assigning roles)
+      allow update: if request.auth != null && (
+        (request.auth.uid == userId &&
+         request.resource.data.role == resource.data.role &&
+         request.resource.data.status == resource.data.status &&
+         request.resource.data.salonId == resource.data.salonId) ||
+        request.auth.token.email == 'carolyn.owner@truelengths.com' ||
+        resource.data.role == 'owner'
+      );
+
+      // Delete rule: Protected
+      allow delete: if request.auth != null && (
+        request.auth.token.email == 'carolyn.owner@truelengths.com'
+      );
+    }
+
+    // Salons Collection
+    match /salons/{salonId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Staff Invites
+    match /staffInvites/{inviteId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Default fallback for other collections
+    match /{document=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}

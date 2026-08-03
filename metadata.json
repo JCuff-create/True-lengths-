@@ -1,0 +1,6 @@
+{
+  "name": "True Lengths Salon OS",
+  "description": "Luxury salon management platform and operating system with role-based experience for customers, stylists, and owners.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

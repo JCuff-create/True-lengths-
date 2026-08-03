@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "User profiles for customers, stylists, and salon owner",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "stylist", "owner"] },
+        "status": { "type": "string", "enum": ["active", "pending", "disabled"] },
+        "salonId": { "type": "string" },
+        "avatar": { "type": "string" },
+        "hairType": { "type": "string" },
+        "loyaltyPoints": { "type": "number" },
+        "loyaltyTier": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "name", "role", "status", "salonId"]
+    },
+    "salons": {
+      "title": "Salons",
+      "description": "Salon locations and organization details",
+      "type": "object",
+      "properties": {
+        "salonId": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerUid": { "type": "string" }
+      },
+      "required": ["salonId", "name", "ownerUid"]
+    },
+    "staffInvites": {
+      "title": "Staff Invites",
+      "description": "Owner invitation links and codes for stylists",
+      "type": "object",
+      "properties": {
+        "inviteId": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["stylist"] },
+        "salonId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "used", "revoked"] }
+      },
+      "required": ["inviteId", "email", "role", "salonId", "createdBy", "status"]
+    }
+  }
+}
