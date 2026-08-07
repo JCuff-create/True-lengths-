@@ -43,6 +43,12 @@ import { WelcomeAuthView } from './components/auth/WelcomeAuthView';
 import { RoleLoadingView } from './components/auth/RoleLoadingView';
 import { AccountPendingView } from './components/auth/AccountPendingView';
 import { StaffApprovalManager } from './components/owner/StaffApprovalManager';
+import {
+  buildPortalHash,
+  defaultViewForRole,
+  isViewAllowedForRole,
+  parsePortalHash,
+} from './lib/roles';
 
 function SalonAppContent() {
   const {
@@ -52,26 +58,50 @@ function SalonAppContent() {
     signOutUser,
   } = useAuth();
 
-  // App State
-  const [currentRole, setCurrentRole] = useState<UserRole>('customer');
-  const [currentView, setCurrentView] = useState<string>('home');
+  // Role is permanently locked to the Firestore profile — never user-selectable
+  const currentRole: UserRole = userProfile?.role ?? 'customer';
+  const [currentView, setCurrentViewState] = useState<string>('home');
   const [bookingCategory, setBookingCategory] = useState<string | undefined>();
   const [isStaffApprovalOpen, setIsStaffApprovalOpen] = useState<boolean>(false);
 
-  // Sync role and view with userProfile role from Firestore after authentication
+  /** Only allow views that belong to the assigned portal */
+  const setCurrentView = React.useCallback(
+    (view: string) => {
+      if (!userProfile) return;
+      const role = userProfile.role;
+      const safeView = isViewAllowedForRole(role, view) ? view : defaultViewForRole(role);
+      setCurrentViewState(safeView);
+      const nextHash = buildPortalHash(role, safeView);
+      if (window.location.hash !== nextHash) {
+        window.location.hash = nextHash;
+      }
+    },
+    [userProfile]
+  );
+
+  // Lock portal to Firestore role + guard manual hash URLs (#/owner/..., etc.)
   React.useEffect(() => {
-    if (userProfile?.role) {
-      setCurrentRole(userProfile.role);
-      if (userProfile.role === 'customer') setCurrentView('home');
-      else if (userProfile.role === 'stylist') setCurrentView('stylist_schedule');
-      else if (userProfile.role === 'owner') setCurrentView('owner_dashboard');
-    }
+    if (!userProfile?.role) return;
+    const role = userProfile.role;
+
+    const applyHashGuard = () => {
+      const parsed = parsePortalHash(window.location.hash);
+      if (!parsed || parsed.role !== role || !isViewAllowedForRole(role, parsed.view)) {
+        const home = defaultViewForRole(role);
+        setCurrentViewState(home);
+        window.location.hash = buildPortalHash(role, home);
+        return;
+      }
+      setCurrentViewState(parsed.view);
+    };
+
+    applyHashGuard();
+    window.addEventListener('hashchange', applyHashGuard);
+    return () => window.removeEventListener('hashchange', applyHashGuard);
   }, [userProfile?.role]);
 
   const handleReturn = () => {
-    if (currentRole === 'customer') setCurrentView('home');
-    else if (currentRole === 'stylist') setCurrentView('stylist_schedule');
-    else if (currentRole === 'owner') setCurrentView('owner_dashboard');
+    setCurrentView(defaultViewForRole(currentRole));
   };
 
   const isSecondaryView =
@@ -220,32 +250,24 @@ function SalonAppContent() {
     });
   };
 
-  // Active Profile Calculation
+  // Active Profile Calculation — identity always comes from authenticated Firestore profile
   const activeCustomer = customerProfiles.find((p) => p.id === activeCustomerId) || customerProfiles[0];
 
-  const currentUserProfile: UserProfile =
-    currentRole === 'customer'
-      ? {
-          ...activeCustomer,
-          loyaltyPoints: loyaltyPoints !== undefined ? loyaltyPoints : activeCustomer.loyaltyPoints,
-        }
-      : currentRole === 'stylist'
-      ? {
-          id: 'st-1',
-          name: 'Carolyn R.',
-          email: 'carolyn@truelengths.com',
-          role: 'stylist',
-          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80',
-          phone: '(555) 345-6789',
-        }
-      : {
-          id: 'owner-1',
-          name: 'Carolyn R. (Owner)',
-          email: 'carolyn.owner@truelengths.com',
-          role: 'owner',
-          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80',
-          phone: '(555) 345-6789',
-        };
+  const currentUserProfile: UserProfile = userProfile
+    ? {
+        ...userProfile,
+        loyaltyPoints:
+          userProfile.role === 'customer'
+            ? loyaltyPoints !== undefined
+              ? loyaltyPoints
+              : userProfile.loyaltyPoints
+            : userProfile.loyaltyPoints,
+      }
+    : {
+        ...activeCustomer,
+        role: 'customer' as UserRole,
+        loyaltyPoints: loyaltyPoints !== undefined ? loyaltyPoints : activeCustomer.loyaltyPoints,
+      };
 
   const handleUpdateCustomerProfile = (updatedProfile: UserProfile) => {
     setCustomerProfiles((prev) =>
@@ -302,13 +324,6 @@ function SalonAppContent() {
         setLoyaltyPoints(filtered[0].loyaltyPoints);
       }
     }
-  };
-
-  const handleRoleChange = (role: UserRole) => {
-    setCurrentRole(role);
-    if (role === 'customer') setCurrentView('home');
-    if (role === 'stylist') setCurrentView('stylist_schedule');
-    if (role === 'owner') setCurrentView('owner_dashboard');
   };
 
   const handleBookingComplete = (newApt: Appointment) => {
@@ -595,13 +610,14 @@ function SalonAppContent() {
       {/* Top Header */}
       <Header
         currentRole={currentRole}
-        onRoleChange={handleRoleChange}
         currentUser={currentUserProfile}
         onHomeClick={handleReturn}
         unreadCount={unreadCount}
         onOpenNotifications={() => setIsNotifOpen(true)}
         onOpenProfileModal={() => setIsProfileModalOpen(true)}
-        onOpenStaffApproval={() => setIsStaffApprovalOpen(true)}
+        onOpenStaffApproval={
+          currentRole === 'owner' ? () => setIsStaffApprovalOpen(true) : undefined
+        }
         onSignOut={signOutUser}
       />
 

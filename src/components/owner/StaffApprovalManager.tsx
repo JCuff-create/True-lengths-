@@ -115,7 +115,7 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
                 Code: TL-STYLIST-VIP
               </p>
               <p className="text-[11px] text-gray-300">
-                Provide this key to incoming stylists to auto-approve their account upon sign-up.
+                Provide this key so stylists can register. New stylists stay pending until you approve them below.
               </p>
             </div>
 

@@ -2,54 +2,80 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isOwner() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc(request.auth.uid).role == 'owner'
+        && userDoc(request.auth.uid).status == 'active';
+    }
+
+    function isBootstrapOwnerEmail() {
+      return isSignedIn()
+        && request.auth.token.email == 'carolyn.owner@truelengths.com';
+    }
+
     // Users Collection Security Rules
     match /users/{userId} {
-      // Allow reading user profiles so salon directory, customer list & staff status can be loaded
-      allow read: if true;
+      // Authenticated users can read profiles needed for salon directory / approvals
+      allow read: if isSignedIn();
 
-      // Creation rule:
-      // - Self-registration MUST be 'customer' with 'active' status OR 'stylist' with 'pending' status
-      // - Unrestricted for owner email or authenticated owner profile
-      allow create: if request.auth != null && (
-        (request.auth.uid == userId && request.resource.data.role == 'customer' && request.resource.data.status == 'active') ||
-        (request.auth.uid == userId && request.resource.data.role == 'stylist' && request.resource.data.status == 'pending') ||
-        request.auth.token.email == 'carolyn.owner@truelengths.com'
+      // Creation:
+      // - Self-registration as customer (active) only
+      // - Self-registration as stylist (pending) only — owner must approve
+      // - Owner bootstrap email may create their own owner profile once
+      // - Active owners may create user docs (admin provisioning)
+      allow create: if isSignedIn() && (
+        (request.auth.uid == userId
+          && request.resource.data.role == 'customer'
+          && request.resource.data.status == 'active')
+        || (request.auth.uid == userId
+          && request.resource.data.role == 'stylist'
+          && request.resource.data.status == 'pending')
+        || (request.auth.uid == userId
+          && isBootstrapOwnerEmail()
+          && request.resource.data.role == 'owner'
+          && request.resource.data.status == 'active')
+        || isOwner()
       );
 
-      // Update rule:
-      // - Users editing their own profile CANNOT change role, status, or salonId
-      // - Owners can update any profile fields (e.g. approving staff or assigning roles)
-      allow update: if request.auth != null && (
-        (request.auth.uid == userId &&
-         request.resource.data.role == resource.data.role &&
-         request.resource.data.status == resource.data.status &&
-         request.resource.data.salonId == resource.data.salonId) ||
-        request.auth.token.email == 'carolyn.owner@truelengths.com' ||
-        resource.data.role == 'owner'
+      // Update:
+      // - Users may edit their own profile but CANNOT change role, status, or salonId
+      // - Active owners may update status/role for staff management (never self-disable enforced in app)
+      allow update: if isSignedIn() && (
+        (request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.salonId == resource.data.salonId)
+        || isOwner()
       );
 
-      // Delete rule: Protected
-      allow delete: if request.auth != null && (
-        request.auth.token.email == 'carolyn.owner@truelengths.com'
-      );
+      allow delete: if isOwner();
     }
 
     // Salons Collection
     match /salons/{salonId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if isSignedIn();
+      allow write: if isOwner();
     }
 
-    // Staff Invites
+    // Staff Invites — owners manage; authenticated users may read to validate codes
     match /staffInvites/{inviteId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if isSignedIn();
+      allow write: if isOwner();
     }
 
     // Default fallback for other collections
     match /{document=**} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
   }
 }
