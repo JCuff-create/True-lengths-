@@ -49,5 +49,21 @@ export function buildPortalHash(role: UserRole, view: string): string {
   return `#/${role}/${safeView}`;
 }
 
+/**
+ * Profile deep-links: `#/customer/profile`, `#/stylist/profile/{uid}`, `#/owner/profile/{uid}`
+ * Returns null if the hash is not a profile path.
+ */
+export function parseProfileHash(
+  hash: string
+): { portalRole: UserRole; profileRole: UserRole; profileUid?: string } | null {
+  const raw = hash.replace(/^#\/?/, '').trim();
+  const parts = raw.split('/').filter(Boolean);
+  if (parts.length < 2 || parts[1] !== 'profile') return null;
+  if (!isValidRole(parts[0])) return null;
+  const profileRole = isValidRole(parts[2]) ? parts[2] : parts[0];
+  const profileUid = isValidRole(parts[2]) ? parts[3] : parts[2];
+  return { portalRole: parts[0], profileRole, profileUid };
+}
+
 /** Owner bootstrap email — only this identity may self-create an owner profile */
 export const OWNER_BOOTSTRAP_EMAIL = 'carolyn.owner@truelengths.com';

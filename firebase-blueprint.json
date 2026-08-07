@@ -1,21 +1,54 @@
 {
   "entities": {
-    "users": {
-      "title": "Users",
-      "description": "User profiles for customers, stylists, and salon owner",
+    "customers": {
+      "title": "Customers",
+      "description": "Customer profiles — Firebase Auth UID as document ID",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "email": { "type": "string" },
         "name": { "type": "string" },
         "phone": { "type": "string" },
-        "role": { "type": "string", "enum": ["customer", "stylist", "owner"] },
-        "status": { "type": "string", "enum": ["active", "pending", "disabled"] },
+        "role": { "type": "string", "enum": ["customer"] },
+        "status": { "type": "string", "enum": ["active", "disabled"] },
         "salonId": { "type": "string" },
         "avatar": { "type": "string" },
         "hairType": { "type": "string" },
         "loyaltyPoints": { "type": "number" },
         "loyaltyTier": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "name", "role", "status", "salonId"]
+    },
+    "stylists": {
+      "title": "Stylists",
+      "description": "Stylist profiles — never readable by customers; never escalatable to owner",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["stylist"] },
+        "status": { "type": "string", "enum": ["active", "pending", "disabled"] },
+        "salonId": { "type": "string" },
+        "avatar": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "name", "role", "status", "salonId"]
+    },
+    "owners": {
+      "title": "Owners",
+      "description": "Owner profiles — readable/writable only by active owners",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["owner"] },
+        "status": { "type": "string", "enum": ["active", "disabled"] },
+        "salonId": { "type": "string" },
+        "avatar": { "type": "string" },
         "createdAt": { "type": "string" }
       },
       "required": ["uid", "email", "name", "role", "status", "salonId"]
@@ -33,7 +66,7 @@
     },
     "staffInvites": {
       "title": "Staff Invites",
-      "description": "Owner invitation links and codes for stylists",
+      "description": "Server-managed stylist invitation metadata (hashed codes)",
       "type": "object",
       "properties": {
         "inviteId": { "type": "string" },

@@ -18,9 +18,13 @@ import {
 import { auth, db } from '../lib/firebase';
 import { UserProfile, UserRole, UserStatus } from '../types';
 import {
-  isValidRole,
-  OWNER_BOOTSTRAP_EMAIL,
-} from '../lib/roles';
+  DEFAULT_SALON_ID,
+  PROFILE_COLLECTIONS,
+  collectionForRole,
+  isBootstrapOwnerEmail,
+  mapProfileDoc,
+  sanitizePersonalProfileUpdate,
+} from '../lib/profiles';
 
 interface AuthContextType {
   firebaseUser: User | null;
@@ -36,7 +40,6 @@ interface AuthContextType {
     phone?: string;
     hairType?: string;
   }) => Promise<void>;
-  /** Stylist self-registration via owner invite — always pending until owner approves */
   signUpStaff: (data: {
     email: string;
     pass: string;
@@ -47,35 +50,36 @@ interface AuthContextType {
   signOutUser: () => Promise<void>;
   approveStaffAccount: (staffUid: string) => Promise<void>;
   disableUserAccount: (targetUid: string) => Promise<void>;
+  updateOwnProfile: (incoming: Partial<UserProfile>) => Promise<void>;
   pendingStaffList: UserProfile[];
   allProfiles: UserProfile[];
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const DEFAULT_SALON_ID = 'truelengths-main';
+export { DEFAULT_SALON_ID };
 
-function mapFirestoreProfile(uid: string, email: string, data: Record<string, unknown>): UserProfile {
-  const roleRaw = data.role;
-  const role: UserRole = isValidRole(roleRaw) ? roleRaw : 'customer';
-  return {
-    id: uid,
-    uid,
-    name: (data.name as string) || email.split('@')[0],
-    email: (data.email as string) || email,
-    role,
-    status: (data.status as UserStatus) || 'active',
-    salonId: (data.salonId as string) || DEFAULT_SALON_ID,
-    avatar:
-      (data.avatar as string) ||
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-    phone: (data.phone as string) || '',
-    hairType: (data.hairType as string) || '',
-    loyaltyPoints: (data.loyaltyPoints as number) ?? 100,
-    loyaltyTier: (data.loyaltyTier as UserProfile['loyaltyTier']) || 'Gold',
-    memberSince: (data.memberSince as string) || '2024',
-    notes: (data.notes as string) || '',
-  };
+async function resolveProfileFromRoleCollections(
+  uid: string,
+  email: string
+): Promise<UserProfile | null> {
+  // Check owners first so stylists/customers never receive owner docs via ambiguity
+  const ownerSnap = await getDoc(doc(db, PROFILE_COLLECTIONS.owner, uid));
+  if (ownerSnap.exists()) {
+    return mapProfileDoc(uid, email, 'owner', ownerSnap.data() as Record<string, unknown>);
+  }
+
+  const stylistSnap = await getDoc(doc(db, PROFILE_COLLECTIONS.stylist, uid));
+  if (stylistSnap.exists()) {
+    return mapProfileDoc(uid, email, 'stylist', stylistSnap.data() as Record<string, unknown>);
+  }
+
+  const customerSnap = await getDoc(doc(db, PROFILE_COLLECTIONS.customer, uid));
+  if (customerSnap.exists()) {
+    return mapProfileDoc(uid, email, 'customer', customerSnap.data() as Record<string, unknown>);
+  }
+
+  return null;
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -91,18 +95,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUserProfile = async (uid: string, email: string) => {
     try {
-      const userRef = doc(db, 'users', uid);
-      const docSnap = await getDoc(userRef);
-
-      if (docSnap.exists()) {
-        const profile = mapFirestoreProfile(uid, email, docSnap.data() as Record<string, unknown>);
-        setUserProfile(profile);
+      const existing = await resolveProfileFromRoleCollections(uid, email);
+      if (existing) {
+        setUserProfile(existing);
         return;
       }
 
-      // Only the designated owner email may bootstrap an owner profile on first login.
-      const isOwnerEmail = email.toLowerCase() === OWNER_BOOTSTRAP_EMAIL;
-      if (!isOwnerEmail) {
+      if (!isBootstrapOwnerEmail(email)) {
         setAuthError(
           'No salon profile is linked to this account. Create a customer account, or ask the salon owner for a stylist invite.'
         );
@@ -127,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
       };
 
-      await setDoc(userRef, {
+      await setDoc(doc(db, PROFILE_COLLECTIONS.owner, uid), {
         ...newProfile,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -140,7 +139,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // Clear legacy demo sessions — roles must come from Firebase Auth + Firestore only
     localStorage.removeItem('tl_demo_user');
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -158,47 +156,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  // Owner/stylist management listeners (staff directory)
+  // Directory listeners — never attach owners collection for stylists/customers
   useEffect(() => {
-    if (!userProfile || (userProfile.role !== 'owner' && userProfile.role !== 'stylist')) {
+    if (!userProfile) {
       setPendingStaffList([]);
       setAllProfiles([]);
       return;
     }
 
-    const usersRef = collection(db, 'users');
-    const unsub = onSnapshot(
-      usersRef,
-      (snapshot) => {
-        const profiles: UserProfile[] = [];
-        const pending: UserProfile[] = [];
+    if (userProfile.role === 'customer') {
+      setPendingStaffList([]);
+      setAllProfiles([]);
+      return;
+    }
 
-        snapshot.forEach((docSnap) => {
-          const d = docSnap.data() as Record<string, unknown>;
-          const prof = mapFirestoreProfile(docSnap.id, (d.email as string) || '', d);
-          profiles.push(prof);
-          if (prof.role === 'stylist' && prof.status === 'pending') {
-            pending.push(prof);
+    const unsubs: Array<() => void> = [];
+    const profilesById = new Map<string, UserProfile>();
+
+    const publish = () => {
+      const list = Array.from(profilesById.values());
+      setAllProfiles(list);
+      setPendingStaffList(
+        list.filter((p) => p.role === 'stylist' && p.status === 'pending')
+      );
+    };
+
+    const watchCollection = (role: UserRole) => {
+      const col = collection(db, collectionForRole(role));
+      const unsub = onSnapshot(
+        col,
+        (snapshot) => {
+          // Clear previous entries for this role before re-adding
+          for (const [id, prof] of profilesById) {
+            if (prof.role === role) profilesById.delete(id);
           }
-        });
+          snapshot.forEach((docSnap) => {
+            const d = docSnap.data() as Record<string, unknown>;
+            profilesById.set(docSnap.id, mapProfileDoc(docSnap.id, (d.email as string) || '', role, d));
+          });
+          publish();
+        },
+        (err) => {
+          console.warn(`Firestore ${role} directory notice:`, err.message);
+        }
+      );
+      unsubs.push(unsub);
+    };
 
-        setAllProfiles(profiles);
-        setPendingStaffList(pending);
-      },
-      (err) => {
-        console.warn('Firestore snapshot notice:', err.message);
-      }
-    );
+    // Stylists: customers + stylists only (owners denied by rules)
+    watchCollection('customer');
+    watchCollection('stylist');
 
-    return () => unsub();
-  }, [userProfile]);
+    // Owners also see owner profiles for admin directory
+    if (userProfile.role === 'owner') {
+      watchCollection('owner');
+    }
+
+    return () => unsubs.forEach((u) => u());
+  }, [userProfile?.role, userProfile?.uid]);
 
   const signIn = async (email: string, pass: string) => {
     setLoading(true);
     setAuthError(null);
     try {
       await signInWithEmailAndPassword(auth, email, pass);
-      // Profile + role loaded by onAuthStateChanged -> fetchUserProfile
     } catch (err: any) {
       console.error('Sign in error:', err);
       let cleanMsg = 'Invalid email or password. Please verify your credentials.';
@@ -214,7 +235,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  /** Public signup — role is ALWAYS customer; never stylist/owner */
   const signUpCustomer = async (data: {
     email: string;
     pass: string;
@@ -246,7 +266,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
       };
 
-      await setDoc(doc(db, 'users', uid), {
+      // Public signup writes ONLY to /customers/{uid}
+      await setDoc(doc(db, PROFILE_COLLECTIONS.customer, uid), {
         ...profileData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -270,11 +291,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  /**
-   * Stylist registration via owner-issued invite (validated server-side).
-   * Always creates role=stylist, status=pending (owner must approve).
-   * Owner accounts cannot be created here.
-   */
   const signUpStaff = async (data: {
     email: string;
     pass: string;
@@ -294,7 +310,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      // Server-side validation — invite secrets never live in the browser bundle
       const validateRes = await fetch('/api/invites/stylist/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -310,15 +325,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const userCred = await createUserWithEmailAndPassword(auth, data.email, data.pass);
       const uid = userCred.user.uid;
+      const idToken = await userCred.user.getIdToken();
 
       const consumeRes = await fetch('/api/invites/stylist/consume', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, uid }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ code, uid, idToken }),
       });
       const consumeJson = await consumeRes.json();
       if (!consumeRes.ok || !consumeJson.ok) {
-        // Roll back Auth user if invite could not be consumed (race / revoke)
         try {
           await userCred.user.delete();
         } catch (delErr) {
@@ -344,7 +362,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
       };
 
-      await setDoc(doc(db, 'users', uid), {
+      // Staff signup writes ONLY to /stylists/{uid} — never owners/
+      await setDoc(doc(db, PROFILE_COLLECTIONS.stylist, uid), {
         ...profileData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -381,28 +400,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateOwnProfile = async (incoming: Partial<UserProfile>) => {
+    if (!userProfile || !firebaseUser) {
+      throw new Error('Not authenticated.');
+    }
+    const sanitized = sanitizePersonalProfileUpdate(userProfile, incoming);
+    const col = collectionForRole(userProfile.role);
+    await updateDoc(doc(db, col, firebaseUser.uid), {
+      name: sanitized.name,
+      phone: sanitized.phone || '',
+      avatar: sanitized.avatar || '',
+      hairType: sanitized.hairType || '',
+      notes: sanitized.notes || '',
+      email: sanitized.email,
+      loyaltyPoints: sanitized.loyaltyPoints ?? null,
+      loyaltyTier: sanitized.loyaltyTier ?? null,
+      memberSince: sanitized.memberSince || '',
+      updatedAt: serverTimestamp(),
+    });
+    setUserProfile(sanitized);
+  };
+
   const approveStaffAccount = async (staffUid: string) => {
-    if (!userProfile || userProfile.role !== 'owner') {
+    if (!userProfile || userProfile.role !== 'owner' || userProfile.status !== 'active') {
       throw new Error('Unauthorized: Only the salon owner can approve staff accounts.');
     }
-    try {
-      const staffRef = doc(db, 'users', staffUid);
-      const snap = await getDoc(staffRef);
-      if (!snap.exists()) throw new Error('Staff account not found.');
-      const data = snap.data();
-      if (data.role !== 'stylist') {
-        throw new Error('Only stylist accounts can be approved through staff management.');
-      }
-      await updateDoc(staffRef, {
-        status: 'active',
-        // role stays stylist — owners must not escalate via this path
-        role: 'stylist',
-        updatedAt: serverTimestamp(),
-      });
-    } catch (e: any) {
-      console.error('Approve staff error:', e);
-      throw e;
+    const staffRef = doc(db, PROFILE_COLLECTIONS.stylist, staffUid);
+    const snap = await getDoc(staffRef);
+    if (!snap.exists()) throw new Error('Staff account not found in stylists collection.');
+    const data = snap.data();
+    if (data.role !== 'stylist') {
+      throw new Error('Only stylist accounts can be approved through staff management.');
     }
+    await updateDoc(staffRef, {
+      status: 'active',
+      role: 'stylist',
+      updatedAt: serverTimestamp(),
+    });
 
     setPendingStaffList((prev) => prev.filter((p) => p.id !== staffUid && p.uid !== staffUid));
     setAllProfiles((prev) =>
@@ -413,21 +447,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const disableUserAccount = async (targetUid: string) => {
-    if (!userProfile || userProfile.role !== 'owner') {
+    if (!userProfile || userProfile.role !== 'owner' || userProfile.status !== 'active') {
       throw new Error('Unauthorized: Only the salon owner can modify user status.');
     }
     if (targetUid === userProfile.uid || targetUid === userProfile.id) {
       throw new Error('Owners cannot disable their own account.');
     }
-    try {
-      const targetRef = doc(db, 'users', targetUid);
-      await updateDoc(targetRef, {
-        status: 'disabled',
-        updatedAt: serverTimestamp(),
-      });
-    } catch (e: any) {
-      console.error('Disable account error:', e);
-      throw e;
+
+    // Never touch owners collection for disable-via-staff tools — stylists/customers only
+    const stylistRef = doc(db, PROFILE_COLLECTIONS.stylist, targetUid);
+    const stylistSnap = await getDoc(stylistRef);
+    if (stylistSnap.exists()) {
+      await updateDoc(stylistRef, { status: 'disabled', updatedAt: serverTimestamp() });
+    } else {
+      const customerRef = doc(db, PROFILE_COLLECTIONS.customer, targetUid);
+      const customerSnap = await getDoc(customerRef);
+      if (!customerSnap.exists()) throw new Error('Account not found.');
+      await updateDoc(customerRef, { status: 'disabled', updatedAt: serverTimestamp() });
     }
 
     setAllProfiles((prev) =>
@@ -449,6 +485,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOutUser,
         approveStaffAccount,
         disableUserAccount,
+        updateOwnProfile,
         pendingStaffList,
         allProfiles,
       }}

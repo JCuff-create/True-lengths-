@@ -48,7 +48,9 @@ import {
   defaultViewForRole,
   isViewAllowedForRole,
   parsePortalHash,
+  parseProfileHash,
 } from './lib/roles';
+import { canAccessProfile, sanitizePersonalProfileUpdate } from './lib/profiles';
 
 function SalonAppContent() {
   const {
@@ -56,6 +58,7 @@ function SalonAppContent() {
     userProfile,
     loading,
     signOutUser,
+    updateOwnProfile,
   } = useAuth();
 
   // Role is permanently locked to the Firestore profile — never user-selectable
@@ -79,13 +82,44 @@ function SalonAppContent() {
     [userProfile]
   );
 
-  // Lock portal to Firestore role + guard manual hash URLs (#/owner/..., etc.)
+  // Lock portal to Firestore role + guard profile/portal URLs
   React.useEffect(() => {
-    if (!userProfile?.role) return;
+    if (!userProfile?.role || !userProfile.uid) return;
     const role = userProfile.role;
+    const uid = userProfile.uid;
 
     const applyHashGuard = () => {
-      const parsed = parsePortalHash(window.location.hash);
+      const hash = window.location.hash;
+
+      // Profile deep-links: block customers from stylist/owner, stylists from owner, etc.
+      const profilePath = parseProfileHash(hash);
+      if (profilePath) {
+        if (profilePath.portalRole !== role) {
+          const home = defaultViewForRole(role);
+          setCurrentViewState(home);
+          window.location.hash = buildPortalHash(role, home);
+          return;
+        }
+        const targetUid = profilePath.profileUid || uid;
+        const allowed = canAccessProfile(
+          role,
+          uid,
+          userProfile.status,
+          profilePath.profileRole,
+          targetUid
+        );
+        if (!allowed) {
+          const home = defaultViewForRole(role);
+          setCurrentViewState(home);
+          window.location.hash = buildPortalHash(role, home);
+          return;
+        }
+        // Stay on home portal view; profile modal is opened separately via header
+        setCurrentViewState(defaultViewForRole(role));
+        return;
+      }
+
+      const parsed = parsePortalHash(hash);
       if (!parsed || parsed.role !== role || !isViewAllowedForRole(role, parsed.view)) {
         const home = defaultViewForRole(role);
         setCurrentViewState(home);
@@ -98,7 +132,7 @@ function SalonAppContent() {
     applyHashGuard();
     window.addEventListener('hashchange', applyHashGuard);
     return () => window.removeEventListener('hashchange', applyHashGuard);
-  }, [userProfile?.role]);
+  }, [userProfile?.role, userProfile?.uid, userProfile?.status]);
 
   const handleReturn = () => {
     setCurrentView(defaultViewForRole(currentRole));
@@ -270,18 +304,32 @@ function SalonAppContent() {
       };
 
   const handleUpdateCustomerProfile = (updatedProfile: UserProfile) => {
+    // Persist only personal fields to the authenticated role collection (role/status locked)
+    if (userProfile && updatedProfile.id === userProfile.id) {
+      const sanitized = sanitizePersonalProfileUpdate(userProfile, updatedProfile);
+      void updateOwnProfile(sanitized).catch((err) => {
+        console.error('Profile update blocked or failed:', err);
+        alert(err.message || 'Unable to update profile.');
+      });
+      if (sanitized.loyaltyPoints !== undefined) {
+        setLoyaltyPoints(sanitized.loyaltyPoints);
+      }
+      addNotification({
+        title: 'Profile Updated 👤',
+        message: `Profile details for ${sanitized.name} were saved successfully.`,
+        type: 'general',
+        targetRole: userProfile.role,
+      });
+      return;
+    }
+
+    // Local demo customer cards (not Firebase identities) — keep local-only
     setCustomerProfiles((prev) =>
       prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p))
     );
     if (updatedProfile.loyaltyPoints !== undefined) {
       setLoyaltyPoints(updatedProfile.loyaltyPoints);
     }
-    addNotification({
-      title: 'Profile Updated 👤',
-      message: `Profile details for ${updatedProfile.name} were saved successfully.`,
-      type: 'general',
-      targetRole: 'customer',
-    });
   };
 
   const handleCreateCustomerProfile = (newProfile: UserProfile) => {
