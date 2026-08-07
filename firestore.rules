@@ -66,10 +66,10 @@ service cloud.firestore {
       allow write: if isOwner();
     }
 
-    // Staff Invites — owners manage; authenticated users may read to validate codes
+    // Staff invite metadata is managed by the Express API (hashed codes).
+    // Do not allow clients to read invite secrets from Firestore.
     match /staffInvites/{inviteId} {
-      allow read: if isSignedIn();
-      allow write: if isOwner();
+      allow read, write: if false;
     }
 
     // Default fallback for other collections

@@ -2,6 +2,15 @@ import express from 'express';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
+import {
+  verifyOwnerIdToken,
+  createStylistInvite,
+  listStylistInvites,
+  revokeStylistInvite,
+  revokeAllActiveInvites,
+  validateStylistInviteCode,
+  consumeStylistInvite,
+} from './server/inviteService';
 
 const app = express();
 // Cloud Run injects PORT (typically 8080). AI Studio preview / local default to 3000.
@@ -187,6 +196,106 @@ SUGGESTED_FOLLOWUPS: ["Follow-up option 1", "Follow-up option 2", "Follow-up opt
 // Healthcheck API
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', salon: 'True Lengths Salon OS', version: '1.0.0' });
+});
+
+// -------------------------------------------------------------
+// Secure stylist invitations (server-side only — codes never shipped in the client bundle)
+// -------------------------------------------------------------
+app.post('/api/invites/stylist', async (req, res) => {
+  try {
+    const idToken = String(req.body?.idToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '');
+    const owner = await verifyOwnerIdToken(idToken);
+    const { code, invite } = createStylistInvite(owner);
+    // Plaintext code returned once to the authenticated owner; never logged
+    res.status(201).json({
+      code,
+      invite,
+      message: 'Share this invite privately with the stylist. It is shown only once.',
+    });
+  } catch (error: any) {
+    const status = error.status || 500;
+    console.error('[invites] create error:', error.message);
+    res.status(status).json({ error: error.message || 'Failed to create invite.' });
+  }
+});
+
+app.get('/api/invites/stylist', async (req, res) => {
+  try {
+    const idToken = String(req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.idToken || '');
+    await verifyOwnerIdToken(idToken);
+    res.json({ invites: listStylistInvites() });
+  } catch (error: any) {
+    const status = error.status || 500;
+    res.status(status).json({ error: error.message || 'Failed to list invites.' });
+  }
+});
+
+app.post('/api/invites/stylist/revoke', async (req, res) => {
+  try {
+    const idToken = String(req.body?.idToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '');
+    const owner = await verifyOwnerIdToken(idToken);
+    if (req.body?.revokeAll) {
+      const count = revokeAllActiveInvites(owner);
+      return res.json({ revoked: count, message: `Revoked ${count} active invitation(s).` });
+    }
+    const inviteId = String(req.body?.inviteId || '');
+    if (!inviteId) {
+      return res.status(400).json({ error: 'inviteId is required (or set revokeAll: true).' });
+    }
+    const invite = revokeStylistInvite(inviteId, owner);
+    res.json({ invite, message: 'Invitation revoked.' });
+  } catch (error: any) {
+    const status = error.status || 500;
+    res.status(status).json({ error: error.message || 'Failed to revoke invite.' });
+  }
+});
+
+app.post('/api/invites/stylist/regenerate', async (req, res) => {
+  try {
+    const idToken = String(req.body?.idToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '');
+    const owner = await verifyOwnerIdToken(idToken);
+    revokeAllActiveInvites(owner);
+    const { code, invite } = createStylistInvite(owner);
+    res.status(201).json({
+      code,
+      invite,
+      message: 'Previous active invites revoked. Share the new code privately.',
+    });
+  } catch (error: any) {
+    const status = error.status || 500;
+    res.status(status).json({ error: error.message || 'Failed to regenerate invite.' });
+  }
+});
+
+/** Public validate — does not reveal whether a code format is "close"; only valid/invalid */
+app.post('/api/invites/stylist/validate', (req, res) => {
+  try {
+    const code = String(req.body?.code || '');
+    const result = validateStylistInviteCode(code);
+    if (result.valid === false) {
+      return res.status(400).json({ valid: false, error: result.reason });
+    }
+    res.json({ valid: true, inviteId: result.inviteId });
+  } catch (error: any) {
+    res.status(500).json({ valid: false, error: error.message || 'Validation failed.' });
+  }
+});
+
+app.post('/api/invites/stylist/consume', (req, res) => {
+  try {
+    const code = String(req.body?.code || '');
+    const usedByUid = String(req.body?.uid || '');
+    if (!usedByUid) {
+      return res.status(400).json({ ok: false, error: 'uid is required.' });
+    }
+    const result = consumeStylistInvite(code, usedByUid);
+    if (result.ok === false) {
+      return res.status(400).json({ ok: false, error: result.reason });
+    }
+    res.json({ ok: true, inviteId: result.inviteId });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message || 'Failed to consume invite.' });
+  }
 });
 
 // Vite Middleware for development / static server for production
