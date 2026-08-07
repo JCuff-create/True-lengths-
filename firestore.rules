@@ -6,15 +6,22 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function userDoc(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)).data;
-    }
-
     function isOwner() {
       return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && userDoc(request.auth.uid).role == 'owner'
-        && userDoc(request.auth.uid).status == 'active';
+        && exists(/databases/$(database)/documents/owners/$(request.auth.uid))
+        && get(/databases/$(database)/documents/owners/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isActiveStylist() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/stylists/$(request.auth.uid))
+        && get(/databases/$(database)/documents/stylists/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isPendingStylist() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/stylists/$(request.auth.uid))
+        && get(/databases/$(database)/documents/stylists/$(request.auth.uid)).data.status == 'pending';
     }
 
     function isBootstrapOwnerEmail() {
@@ -22,60 +29,129 @@ service cloud.firestore {
         && request.auth.token.email == 'carolyn.owner@truelengths.com';
     }
 
-    // Users Collection Security Rules
-    match /users/{userId} {
-      // Authenticated users can read profiles needed for salon directory / approvals
-      allow read: if isSignedIn();
+    function personalKeysOnly() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['role', 'status', 'salonId', 'uid', 'id']);
+    }
 
-      // Creation:
-      // - Self-registration as customer (active) only
-      // - Self-registration as stylist (pending) only — owner must approve
-      // - Owner bootstrap email may create their own owner profile once
-      // - Active owners may create user docs (admin provisioning)
-      allow create: if isSignedIn() && (
-        (request.auth.uid == userId
-          && request.resource.data.role == 'customer'
-          && request.resource.data.status == 'active')
-        || (request.auth.uid == userId
-          && request.resource.data.role == 'stylist'
-          && request.resource.data.status == 'pending')
-        || (request.auth.uid == userId
-          && isBootstrapOwnerEmail()
-          && request.resource.data.role == 'owner'
-          && request.resource.data.status == 'active')
-        || isOwner()
-      );
+    function immutableRoleStatusSalon() {
+      return request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.salonId == resource.data.salonId;
+    }
 
-      // Update:
-      // - Users may edit their own profile but CANNOT change role, status, or salonId
-      // - Active owners may update status/role for staff management (never self-disable enforced in app)
-      allow update: if isSignedIn() && (
-        (request.auth.uid == userId
-          && request.resource.data.role == resource.data.role
-          && request.resource.data.status == resource.data.status
-          && request.resource.data.salonId == resource.data.salonId)
-        || isOwner()
-      );
+    // Prevent gaining a second role by writing another collection for the same UID
+    function notInCustomers(uid) {
+      return !exists(/databases/$(database)/documents/customers/$(uid));
+    }
+    function notInStylists(uid) {
+      return !exists(/databases/$(database)/documents/stylists/$(uid));
+    }
+    function notInOwners(uid) {
+      return !exists(/databases/$(database)/documents/owners/$(uid));
+    }
+
+    // ------------------------------------------------------------------
+    // CUSTOMERS — own profile only for customers; stylists + owners may read
+    // ------------------------------------------------------------------
+    match /customers/{userId} {
+      allow read: if isOwner()
+        || isActiveStylist()
+        || (isSignedIn() && request.auth.uid == userId);
+
+      // Public signup: customer only — cannot also hold stylist/owner docs
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == 'customer'
+        && request.resource.data.status == 'active'
+        && request.resource.data.uid == userId
+        && notInStylists(userId)
+        && notInOwners(userId);
+
+      allow update: if isOwner()
+        || (isSignedIn()
+            && request.auth.uid == userId
+            && immutableRoleStatusSalon()
+            && personalKeysOnly()
+            && request.resource.data.role == 'customer');
 
       allow delete: if isOwner();
     }
 
-    // Salons Collection
+    // ------------------------------------------------------------------
+    // STYLISTS — never readable by customers; never writable to escalate role
+    // ------------------------------------------------------------------
+    match /stylists/{userId} {
+      allow read: if isOwner()
+        || isActiveStylist()
+        || (isPendingStylist() && request.auth.uid == userId);
+
+      // Self-create only as pending stylist after server invite validation.
+      // Cannot create if customer/owner profile already exists for this UID.
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == 'stylist'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.uid == userId
+        && notInCustomers(userId)
+        && notInOwners(userId);
+
+      // Own personal edits (cannot change role/status); owners manage status
+      allow update: if isOwner()
+        || (isSignedIn()
+            && request.auth.uid == userId
+            && immutableRoleStatusSalon()
+            && personalKeysOnly()
+            && request.resource.data.role == 'stylist');
+
+      allow delete: if isOwner();
+    }
+
+    // ------------------------------------------------------------------
+    // OWNERS — ONLY active owners may read/write. Stylists & customers DENIED.
+    // ------------------------------------------------------------------
+    match /owners/{userId} {
+      allow read: if isOwner();
+
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && isBootstrapOwnerEmail()
+        && request.resource.data.role == 'owner'
+        && request.resource.data.status == 'active'
+        && request.resource.data.uid == userId
+        && notInCustomers(userId)
+        && notInStylists(userId);
+
+      allow update: if isOwner()
+        && (
+          // Owners editing themselves cannot change role away from owner
+          (request.auth.uid == userId
+            && request.resource.data.role == 'owner'
+            && personalKeysOnly())
+          || (request.auth.uid != userId
+            && request.resource.data.role == resource.data.role)
+        );
+
+      allow delete: if false;
+    }
+
+    // Legacy monolithic users collection — locked (use role collections)
+    match /users/{userId} {
+      allow read, write: if false;
+    }
+
     match /salons/{salonId} {
       allow read: if isSignedIn();
       allow write: if isOwner();
     }
 
-    // Staff invite metadata is managed by the Express API (hashed codes).
-    // Do not allow clients to read invite secrets from Firestore.
     match /staffInvites/{inviteId} {
       allow read, write: if false;
     }
 
-    // Default fallback for other collections
+    // Default deny for unknown collections
     match /{document=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if false;
     }
   }
 }

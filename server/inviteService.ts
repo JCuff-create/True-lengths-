@@ -1,19 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-
-type FirebaseAppletConfig = {
-  projectId: string;
-  appId: string;
-  apiKey: string;
-  firestoreDatabaseId?: string;
-};
-
-function loadFirebaseConfig(): FirebaseAppletConfig {
-  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-  const raw = fs.readFileSync(configPath, 'utf8');
-  return JSON.parse(raw) as FirebaseAppletConfig;
-}
+import { loadFirebaseConfig, verifyActiveOwner, type VerifiedIdentity } from './authRole';
 
 const firebaseConfig = loadFirebaseConfig();
 
@@ -32,7 +20,8 @@ type InviteStoreFile = {
   invites: InviteRecord[];
 };
 
-const OWNER_BOOTSTRAP_EMAIL = 'carolyn.owner@truelengths.com';
+export type VerifiedOwner = Pick<VerifiedIdentity, 'uid' | 'email'>;
+
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const STORE_PATH = path.join(process.cwd(), '.data', 'stylist-invites.json');
 
@@ -45,6 +34,12 @@ function getInviteSecret(): string {
     return `tl-invite-fallback:${firebaseConfig.projectId}:${firebaseConfig.appId}`;
   }
   return secret;
+}
+
+/** Owner-only gate — role resolved from /owners/{uid}, never from the browser */
+export async function verifyOwnerIdToken(idToken: string): Promise<VerifiedOwner> {
+  const identity = await verifyActiveOwner(idToken);
+  return { uid: identity.uid, email: identity.email };
 }
 
 function ensureStore(): InviteStoreFile {
@@ -105,72 +100,6 @@ function parseSignedInviteCode(
   } catch {
     return { error: 'Invalid invite code.' };
   }
-}
-
-export type VerifiedOwner = {
-  uid: string;
-  email: string;
-};
-
-/** Verify Firebase ID token via Identity Toolkit and confirm caller is an active owner */
-export async function verifyOwnerIdToken(idToken: string): Promise<VerifiedOwner> {
-  if (!idToken || typeof idToken !== 'string') {
-    throw Object.assign(new Error('Missing authentication token.'), { status: 401 });
-  }
-
-  const apiKey = process.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey;
-  const lookupRes = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-    }
-  );
-
-  if (!lookupRes.ok) {
-    throw Object.assign(new Error('Invalid or expired authentication token.'), { status: 401 });
-  }
-
-  const lookupData = (await lookupRes.json()) as {
-    users?: Array<{ localId?: string; email?: string }>;
-  };
-  const user = lookupData.users?.[0];
-  if (!user?.localId || !user.email) {
-    throw Object.assign(new Error('Unable to verify authenticated user.'), { status: 401 });
-  }
-
-  const uid = user.localId;
-  const email = user.email.toLowerCase();
-
-  const projectId = firebaseConfig.projectId;
-  const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-  const docUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${encodeURIComponent(
-    databaseId
-  )}/documents/users/${uid}`;
-
-  const docRes = await fetch(docUrl, {
-    headers: { Authorization: `Bearer ${idToken}` },
-  });
-
-  if (docRes.ok) {
-    const docJson = (await docRes.json()) as {
-      fields?: { role?: { stringValue?: string }; status?: { stringValue?: string } };
-    };
-    const role = docJson.fields?.role?.stringValue;
-    const status = docJson.fields?.status?.stringValue || 'active';
-    if (role === 'owner' && status === 'active') {
-      return { uid, email };
-    }
-  }
-
-  if (email === OWNER_BOOTSTRAP_EMAIL) {
-    return { uid, email };
-  }
-
-  throw Object.assign(new Error('Only active salon owners can manage stylist invitations.'), {
-    status: 403,
-  });
 }
 
 export function createStylistInvite(owner: VerifiedOwner, ttlMs = DEFAULT_TTL_MS): {

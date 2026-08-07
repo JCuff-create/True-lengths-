@@ -11,6 +11,13 @@ import {
   validateStylistInviteCode,
   consumeStylistInvite,
 } from './server/inviteService';
+import {
+  verifyIdToken,
+  verifyIdTokenAndRole,
+  canReadProfile,
+  fetchProfileByRole,
+  type AuthRole,
+} from './server/authRole';
 
 const app = express();
 // Cloud Run injects PORT (typically 8080). AI Studio preview / local default to 3000.
@@ -281,12 +288,29 @@ app.post('/api/invites/stylist/validate', (req, res) => {
   }
 });
 
-app.post('/api/invites/stylist/consume', (req, res) => {
+// -------------------------------------------------------------
+// Profile APIs — Firebase ID token + server-side role checks
+// -------------------------------------------------------------
+function extractIdToken(req: express.Request): string {
+  return String(
+    req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.body?.idToken || req.query.idToken || ''
+  );
+}
+
+app.post('/api/invites/stylist/consume', async (req, res) => {
   try {
     const code = String(req.body?.code || '');
     const usedByUid = String(req.body?.uid || '');
     if (!usedByUid) {
       return res.status(400).json({ ok: false, error: 'uid is required.' });
+    }
+    // Bind invite consumption to the authenticated Firebase UID (profile may not exist yet)
+    const authUser = await verifyIdToken(extractIdToken(req));
+    if (authUser.uid !== usedByUid) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Invite can only be consumed by the authenticated user.',
+      });
     }
     const result = consumeStylistInvite(code, usedByUid);
     if (result.ok === false) {
@@ -294,7 +318,93 @@ app.post('/api/invites/stylist/consume', (req, res) => {
     }
     res.json({ ok: true, inviteId: result.inviteId });
   } catch (error: any) {
-    res.status(500).json({ ok: false, error: error.message || 'Failed to consume invite.' });
+    res.status(error.status || 500).json({ ok: false, error: error.message || 'Failed to consume invite.' });
+  }
+});
+
+app.get('/api/profiles/me', async (req, res) => {
+  try {
+    const identity = await verifyIdTokenAndRole(extractIdToken(req));
+    res.json({
+      uid: identity.uid,
+      email: identity.email,
+      role: identity.role,
+      status: identity.status,
+      collection: identity.collection,
+      profile: {
+        ...identity.profile,
+        uid: identity.uid,
+        role: identity.role,
+        status: identity.status,
+      },
+    });
+  } catch (error: any) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to load profile.' });
+  }
+});
+
+app.get('/api/profiles/:role/:uid', async (req, res) => {
+  try {
+    const targetRole = req.params.role as AuthRole;
+    const targetUid = req.params.uid;
+    if (!['customer', 'stylist', 'owner'].includes(targetRole)) {
+      return res.status(400).json({ error: 'Invalid profile role.' });
+    }
+
+    const identity = await verifyIdTokenAndRole(extractIdToken(req));
+    if (!canReadProfile(identity, targetRole, targetUid)) {
+      return res.status(403).json({
+        error: 'Access denied: your role cannot view this profile.',
+        actorRole: identity.role,
+        targetRole,
+      });
+    }
+
+    // Prefer actor's own cached profile when requesting self
+    if (targetUid === identity.uid && targetRole === identity.role) {
+      return res.json({
+        uid: identity.uid,
+        role: identity.role,
+        status: identity.status,
+        profile: { ...identity.profile, uid: identity.uid, role: identity.role },
+      });
+    }
+
+    const profile = await fetchProfileByRole(extractIdToken(req), targetRole, targetUid);
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found.' });
+    }
+
+    res.json({
+      uid: targetUid,
+      role: targetRole,
+      status: profile.status || 'active',
+      profile: { ...profile, uid: targetUid, role: targetRole },
+    });
+  } catch (error: any) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to load profile.' });
+  }
+});
+
+/** Explicit deny probe used by security tests */
+app.post('/api/profiles/access-check', async (req, res) => {
+  try {
+    const identity = await verifyIdTokenAndRole(extractIdToken(req));
+    const targetRole = String(req.body?.targetRole || '') as AuthRole;
+    const targetUid = String(req.body?.targetUid || '');
+    if (!['customer', 'stylist', 'owner'].includes(targetRole) || !targetUid) {
+      return res.status(400).json({ error: 'targetRole and targetUid are required.' });
+    }
+    const allowed = canReadProfile(identity, targetRole, targetUid);
+    res.json({
+      allowed,
+      actorRole: identity.role,
+      actorUid: identity.uid,
+      targetRole,
+      targetUid,
+    });
+  } catch (error: any) {
+    res.status(error.status || 500).json({ error: error.message || 'Access check failed.' });
   }
 });
 
