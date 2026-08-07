@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, AlertTriangle, LogOut, ShieldAlert, Sparkles, RefreshCw } from 'lucide-react';
+import { Clock, AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 interface AccountPendingViewProps {
@@ -7,7 +7,7 @@ interface AccountPendingViewProps {
 }
 
 export const AccountPendingView: React.FC<AccountPendingViewProps> = ({ status = 'pending' }) => {
-  const { userProfile, signOutUser, demoQuickLogin } = useAuth();
+  const { userProfile, signOutUser } = useAuth();
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] flex flex-col items-center justify-center p-6 text-[#2D2D2D]">
@@ -69,19 +69,6 @@ export const AccountPendingView: React.FC<AccountPendingViewProps> = ({ status =
             className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#2D2D2D] text-[#FAF8F5] text-xs font-bold hover:bg-black transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
             <LogOut className="w-4 h-4 text-[#B68A4C]" /> Sign Out
-          </button>
-        </div>
-
-        {/* Instant Demo Switch helper */}
-        <div className="pt-4 border-t border-gray-100 space-y-2">
-          <p className="text-[11px] text-gray-500 flex items-center justify-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-[#B68A4C]" /> Instant Owner Demo (Approve this stylist instantly):
-          </p>
-          <button
-            onClick={() => demoQuickLogin('owner')}
-            className="text-xs font-bold text-[#8B5E34] hover:underline cursor-pointer"
-          >
-            Log In as Salon Owner (Carolyn R.) to Approve
           </button>
         </div>
 

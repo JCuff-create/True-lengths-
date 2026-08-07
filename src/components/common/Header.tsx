@@ -1,10 +1,9 @@
 import React from 'react';
 import { UserRole, UserProfile } from '../../types';
-import { Sparkles, Crown, Scissors, User, Bell, ShieldCheck, LogOut } from 'lucide-react';
+import { Crown, Scissors, User, Bell, ShieldCheck, LogOut, Lock } from 'lucide-react';
 
 interface HeaderProps {
   currentRole: UserRole;
-  onRoleChange: (role: UserRole) => void;
   currentUser: UserProfile;
   onHomeClick?: () => void;
   unreadCount?: number;
@@ -14,9 +13,29 @@ interface HeaderProps {
   onSignOut?: () => void;
 }
 
+function RoleBadge({ role }: { role: UserRole }) {
+  const label =
+    role === 'customer' ? 'Customer Portal' : role === 'stylist' ? 'Stylist Portal' : 'Owner OS';
+  const Icon = role === 'customer' ? User : role === 'stylist' ? Scissors : Crown;
+  const activeClass =
+    role === 'owner'
+      ? 'bg-[#B68A4C] text-[#FAF8F5]'
+      : 'bg-[#8B5E34] text-[#FAF8F5]';
+
+  return (
+    <div
+      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium text-xs ${activeClass} shadow-sm`}
+      title="Your account role is locked and cannot be switched"
+    >
+      <Lock className="w-3 h-3 opacity-80" />
+      <Icon className="w-3.5 h-3.5" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
-  onRoleChange,
   currentUser,
   onHomeClick,
   unreadCount = 0,
@@ -50,58 +69,14 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </button>
 
-        {/* Role Selector Badge & Actions */}
+        {/* Locked role badge & actions — no portal switcher */}
         <div className="flex items-center space-x-1.5 sm:space-x-4 shrink-0">
-          {/* Quick Role Switcher Buttons */}
-          <div className="hidden md:flex items-center bg-[#F4F1EC] p-1 rounded-full border border-[#B68A4C]/20 text-xs">
-            <button
-              onClick={() => onRoleChange('customer')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all ${
-                currentRole === 'customer'
-                  ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
-                  : 'text-[#2D2D2D] hover:text-[#8B5E34]'
-              }`}
-            >
-              <User className="w-3.5 h-3.5" />
-              <span>Customer</span>
-            </button>
-
-            <button
-              onClick={() => onRoleChange('stylist')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all ${
-                currentRole === 'stylist'
-                  ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
-                  : 'text-[#2D2D2D] hover:text-[#8B5E34]'
-              }`}
-            >
-              <Scissors className="w-3.5 h-3.5" />
-              <span>Stylist</span>
-            </button>
-
-            <button
-              onClick={() => onRoleChange('owner')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all ${
-                currentRole === 'owner'
-                  ? 'bg-[#B68A4C] text-[#FAF8F5] shadow-sm'
-                  : 'text-[#2D2D2D] hover:text-[#B68A4C]'
-              }`}
-            >
-              <Crown className="w-3.5 h-3.5" />
-              <span>Owner OS</span>
-            </button>
+          <div className="hidden sm:flex">
+            <RoleBadge role={currentRole} />
           </div>
-
-          {/* Role Indicator Badge (Mobile) */}
-          <div className="md:hidden flex items-center">
-            <select
-              value={currentRole}
-              onChange={(e) => onRoleChange(e.target.value as UserRole)}
-              className="bg-[#F4F1EC] text-[#8B5E34] font-semibold text-[11px] border border-[#B68A4C]/30 rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
-            >
-              <option value="customer">View: Customer</option>
-              <option value="stylist">View: Stylist</option>
-              <option value="owner">View: Owner OS</option>
-            </select>
+          <div className="sm:hidden flex items-center bg-[#F4F1EC] px-2 py-1 rounded-lg border border-[#B68A4C]/30 text-[11px] font-semibold text-[#8B5E34] capitalize">
+            <Lock className="w-3 h-3 mr-1" />
+            {currentRole}
           </div>
 
           {/* Notifications Bell */}
@@ -118,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* Staff Management (Owner) */}
+          {/* Staff Management (Owner only) */}
           {currentRole === 'owner' && onOpenStaffApproval && (
             <button
               onClick={onOpenStaffApproval}
