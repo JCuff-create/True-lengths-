@@ -20,7 +20,6 @@ import { UserProfile, UserRole, UserStatus } from '../types';
 import {
   isValidRole,
   OWNER_BOOTSTRAP_EMAIL,
-  STYLIST_INVITE_CODE,
 } from '../lib/roles';
 
 interface AuthContextType {
@@ -272,7 +271,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
-   * Stylist registration via owner invite code.
+   * Stylist registration via owner-issued invite (validated server-side).
    * Always creates role=stylist, status=pending (owner must approve).
    * Owner accounts cannot be created here.
    */
@@ -286,18 +285,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     setAuthError(null);
 
-    const code = (data.inviteCode || '').trim().toUpperCase();
-    if (code !== STYLIST_INVITE_CODE) {
-      const msg =
-        'A valid owner stylist invite code is required to register as staff. Contact the salon owner.';
+    const code = (data.inviteCode || '').trim();
+    if (!code) {
+      const msg = 'A valid owner stylist invite code is required to register as staff.';
       setAuthError(msg);
       setLoading(false);
       throw new Error(msg);
     }
 
     try {
+      // Server-side validation — invite secrets never live in the browser bundle
+      const validateRes = await fetch('/api/invites/stylist/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const validateJson = await validateRes.json();
+      if (!validateRes.ok || !validateJson.valid) {
+        const msg = validateJson.error || 'Invalid or expired stylist invite code.';
+        setAuthError(msg);
+        setLoading(false);
+        throw new Error(msg);
+      }
+
       const userCred = await createUserWithEmailAndPassword(auth, data.email, data.pass);
       const uid = userCred.user.uid;
+
+      const consumeRes = await fetch('/api/invites/stylist/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, uid }),
+      });
+      const consumeJson = await consumeRes.json();
+      if (!consumeRes.ok || !consumeJson.ok) {
+        // Roll back Auth user if invite could not be consumed (race / revoke)
+        try {
+          await userCred.user.delete();
+        } catch (delErr) {
+          console.warn('Failed to roll back Auth user after invite consume failure:', delErr);
+        }
+        const msg = consumeJson.error || 'Invite could not be redeemed. Request a new invite from the owner.';
+        setAuthError(msg);
+        setLoading(false);
+        throw new Error(msg);
+      }
 
       const profileData: UserProfile = {
         id: uid,

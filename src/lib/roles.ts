@@ -51,6 +51,3 @@ export function buildPortalHash(role: UserRole, view: string): string {
 
 /** Owner bootstrap email — only this identity may self-create an owner profile */
 export const OWNER_BOOTSTRAP_EMAIL = 'carolyn.owner@truelengths.com';
-
-/** Invite required to self-register as stylist (always pending until owner approves) */
-export const STYLIST_INVITE_CODE = 'TL-STYLIST-VIP';
