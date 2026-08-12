@@ -96,7 +96,12 @@ export const LoyaltyGiftCards: React.FC<LoyaltyGiftCardsProps> = ({
           <div className="space-y-3">
             <h3 className="font-serif font-bold text-lg text-[#2D2D2D]">Redeemable Rewards</h3>
 
-            {rewards.map((reward) => {
+            {rewards.length === 0 ? (
+              <p className="text-xs text-[#2D2D2D]/60 bg-[#F4F1EC] p-4 rounded-xl">
+                No loyalty rewards yet.
+              </p>
+            ) : (
+            rewards.map((reward) => {
               const canRedeem = loyaltyPoints >= reward.pointsRequired;
               return (
                 <div
@@ -125,7 +130,8 @@ export const LoyaltyGiftCards: React.FC<LoyaltyGiftCardsProps> = ({
                   </button>
                 </div>
               );
-            })}
+            })
+            )}
           </div>
 
         </div>

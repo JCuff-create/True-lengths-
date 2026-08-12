@@ -21,7 +21,6 @@ export const WelcomeAuthView: React.FC = () => {
     signIn,
     signUpCustomer,
     signUpStaff,
-    demoQuickLogin,
     authError,
     clearError,
     loading
@@ -277,12 +276,12 @@ export const WelcomeAuthView: React.FC = () => {
                     type="text"
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
-                    placeholder="Enter TL-STYLIST-VIP to bypass review"
+                    placeholder="Owner invite code (optional)"
                     className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                   />
                 </div>
                 <p className="text-[10px] text-gray-500 mt-1">
-                  Unverified staff accounts enter a pending state awaiting Owner approval.
+                  New staff accounts remain pending until the salon owner approves them.
                 </p>
               </div>
             )}
@@ -305,45 +304,6 @@ export const WelcomeAuthView: React.FC = () => {
             </button>
 
           </form>
-
-          {/* Instant Quick Demo Switcher */}
-          <div className="pt-4 border-t border-[#B68A4C]/20 space-y-3">
-            <p className="text-center text-[11px] font-bold text-[#8B5E34] uppercase tracking-wider flex items-center justify-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-[#B68A4C]" /> Instant Role Demo Login
-            </p>
-
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => demoQuickLogin('customer')}
-                className="p-2 rounded-xl bg-[#FAF8F5] border border-[#B68A4C]/30 hover:border-[#8B5E34] text-center transition-all cursor-pointer group"
-              >
-                <User className="w-4 h-4 text-[#8B5E34] mx-auto mb-1 group-hover:scale-110 transition-transform" />
-                <span className="block text-[11px] font-bold text-[#2D2D2D]">Customer</span>
-                <span className="block text-[9px] text-[#8B5E34]">Jasmine R.</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => demoQuickLogin('stylist')}
-                className="p-2 rounded-xl bg-[#FAF8F5] border border-[#B68A4C]/30 hover:border-[#8B5E34] text-center transition-all cursor-pointer group"
-              >
-                <Scissors className="w-4 h-4 text-[#8B5E34] mx-auto mb-1 group-hover:scale-110 transition-transform" />
-                <span className="block text-[11px] font-bold text-[#2D2D2D]">Stylist</span>
-                <span className="block text-[9px] text-[#8B5E34]">Carolyn R.</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => demoQuickLogin('owner')}
-                className="p-2 rounded-xl bg-[#2D2D2D] border border-[#B68A4C] text-center transition-all cursor-pointer group"
-              >
-                <Crown className="w-4 h-4 text-[#B68A4C] mx-auto mb-1 group-hover:scale-110 transition-transform" />
-                <span className="block text-[11px] font-bold text-[#FAF8F5]">Owner</span>
-                <span className="block text-[9px] text-[#B68A4C]">Carolyn R.</span>
-              </button>
-            </div>
-          </div>
 
         </div>
 

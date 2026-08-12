@@ -3,16 +3,23 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
+const viteEnv =
+  typeof import.meta !== 'undefined' && (import.meta as ImportMeta & { env?: Record<string, string> }).env
+    ? (import.meta as ImportMeta & { env: Record<string, string> }).env
+    : ({} as Record<string, string>);
+
 const firebaseConfig = {
-  apiKey: (import.meta.env.VITE_FIREBASE_API_KEY as string) || firebaseConfigJson.apiKey || '',
-  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) || firebaseConfigJson.authDomain || '',
-  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) || firebaseConfigJson.projectId || '',
-  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string) || firebaseConfigJson.storageBucket || '',
-  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || firebaseConfigJson.messagingSenderId || '',
-  appId: (import.meta.env.VITE_FIREBASE_APP_ID as string) || firebaseConfigJson.appId || '',
+  apiKey: viteEnv.VITE_FIREBASE_API_KEY || firebaseConfigJson.apiKey || '',
+  authDomain: viteEnv.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson.authDomain || '',
+  projectId: viteEnv.VITE_FIREBASE_PROJECT_ID || firebaseConfigJson.projectId || '',
+  storageBucket: viteEnv.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigJson.storageBucket || '',
+  messagingSenderId:
+    viteEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson.messagingSenderId || '',
+  appId: viteEnv.VITE_FIREBASE_APP_ID || firebaseConfigJson.appId || '',
 };
 
-const databaseId = (import.meta.env.VITE_FIREBASE_DATABASE_ID as string) || firebaseConfigJson.firestoreDatabaseId || undefined;
+const databaseId =
+  viteEnv.VITE_FIREBASE_DATABASE_ID || firebaseConfigJson.firestoreDatabaseId || undefined;
 
 // Initialize Firebase singleton
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();

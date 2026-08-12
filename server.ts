@@ -4,7 +4,8 @@ import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
-const PORT = 3000;
+// Cloud Run injects PORT (typically 8080). Local / AI Studio default to 3000.
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
@@ -125,13 +126,10 @@ app.post('/api/ai/owner-assistant', async (req, res) => {
 You analyze revenue trends, stylist productivity, inventory stockouts, client retention rates, and local marketing strategies.
 You speak like a seasoned business strategist and luxury brand director: clear, actionable, data-driven, and empowering.
 
-Current Salon Metrics:
-- Monthly Revenue: $24,350 (+12.5% MoM)
-- Appointments Completed: 236
-- Retention Rate: 68%
-- Top Performers: Carolyn R. (Silk Press), Tina M. (Balayage), Maria S. (Braids)
-- Low Stock Items: Silk Thermal Protectant Serum (4 remaining), Wella Illumina Color Gloss (2 remaining)
-- 8-Week Inactive Clients: 14 clients due for Silk Press / Color refresh.
+Current Salon Metrics (from live Firestore businessData — never invent numbers):
+${JSON.stringify(businessData || {}, null, 2)}
+
+If businessData is empty or zeroed, say that no completed appointments/revenue are recorded yet. Do not invent sample metrics.
 
 CRITICAL INSTRUCTION:
 At the end of your response, you MUST provide exactly 3 relevant, actionable follow-up questions or next steps to keep the conversation going and help the owner explore deeper insights.
@@ -150,9 +148,9 @@ SUGGESTED_FOLLOWUPS: ["Follow-up option 1", "Follow-up option 2", "Follow-up opt
     const fullText = response.text || "Here is your business intelligence overview for True Lengths.";
     let cleanText = fullText;
     let suggestions: string[] = [
-      "Draft re-engagement SMS for 8-week inactive clients",
-      "Compare Carolyn R vs Tina M revenue contribution",
-      "Which inventory items need immediate reorder?"
+      'Draft re-engagement outreach for inactive clients',
+      'Which services drove the most completed revenue?',
+      'Which inventory items need immediate reorder?',
     ];
 
     if (fullText.includes('SUGGESTED_FOLLOWUPS:')) {

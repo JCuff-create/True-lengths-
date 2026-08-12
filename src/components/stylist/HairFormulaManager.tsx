@@ -14,20 +14,20 @@ export const HairFormulaManager: React.FC<HairFormulaManagerProps> = ({
   onSaveFormula,
 }) => {
   const [showForm, setShowForm] = useState<boolean>(false);
-  const [clientName, setClientName] = useState<string>('Jasmine R.');
-  const [serviceName, setServiceName] = useState<string>('Caramel Honey Balayage');
-  const [baseFormula, setBaseFormula] = useState<string>('Wella Illumina 6/37 + 20vol (Root shadow)');
-  const [developerVolume, setDeveloperVolume] = useState<string>('20 Vol / 30 Vol for mid-lengths');
-  const [highlightToner, setHighlightToner] = useState<string>('Redken Shades EQ 09N + 09G equal parts');
-  const [processingTime, setProcessingTime] = useState<string>('35 mins ambient room temp');
-  const [notes, setNotes] = useState<string>('Lifted cleanly without brassiness.');
+  const [clientName, setClientName] = useState<string>('');
+  const [serviceName, setServiceName] = useState<string>('');
+  const [baseFormula, setBaseFormula] = useState<string>('');
+  const [developerVolume, setDeveloperVolume] = useState<string>('');
+  const [highlightToner, setHighlightToner] = useState<string>('');
+  const [processingTime, setProcessingTime] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
   const [isSaved, setIsSaved] = useState<boolean>(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const formulaObj: HairFormula = {
       id: `f-${Date.now()}`,
-      clientId: selectedClientId || 'cust-1',
+      clientId: selectedClientId || '',
       clientName,
       date: new Date().toISOString().split('T')[0],
       serviceName,
@@ -36,7 +36,7 @@ export const HairFormulaManager: React.FC<HairFormulaManagerProps> = ({
       highlightToner,
       processingTime,
       notes,
-      stylistName: 'Tina M.',
+      stylistName: '',
     };
 
     onSaveFormula(formulaObj);
@@ -166,7 +166,12 @@ export const HairFormulaManager: React.FC<HairFormulaManagerProps> = ({
 
       {/* Formula History Cards */}
       <div className="space-y-4">
-        {formulas.map((form) => (
+        {formulas.length === 0 ? (
+          <div className="p-8 text-center bg-[#FAF8F5] rounded-2xl border border-[#B68A4C]/20 text-[#2D2D2D]/60">
+            <p className="text-sm font-semibold">No formulas yet.</p>
+          </div>
+        ) : (
+        formulas.map((form) => (
           <div
             key={form.id}
             className="bg-[#FAF8F5] border border-[#B68A4C]/25 rounded-2xl p-5 shadow-2xs space-y-3"
@@ -220,7 +225,8 @@ export const HairFormulaManager: React.FC<HairFormulaManagerProps> = ({
               </p>
             )}
           </div>
-        ))}
+        ))
+        )}
       </div>
 
     </div>

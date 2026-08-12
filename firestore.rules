@@ -2,54 +2,124 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users Collection Security Rules
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveOwner() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().role == 'owner'
+        && userDoc().status == 'active';
+    }
+
+    function isActiveStylist() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().role == 'stylist'
+        && userDoc().status == 'active';
+    }
+
+    function isStaffOrOwner() {
+      return isActiveOwner() || isActiveStylist();
+    }
+
+    // ------------------------------------------------------------------
+    // USERS — auth profiles
+    // ------------------------------------------------------------------
     match /users/{userId} {
-      // Allow reading user profiles so salon directory, customer list & staff status can be loaded
-      allow read: if true;
+      allow read: if isSignedIn();
 
-      // Creation rule:
-      // - Self-registration MUST be 'customer' with 'active' status OR 'stylist' with 'pending' status
-      // - Unrestricted for owner email or authenticated owner profile
-      allow create: if request.auth != null && (
-        (request.auth.uid == userId && request.resource.data.role == 'customer' && request.resource.data.status == 'active') ||
-        (request.auth.uid == userId && request.resource.data.role == 'stylist' && request.resource.data.status == 'pending') ||
-        request.auth.token.email == 'carolyn.owner@truelengths.com'
+      allow create: if isSignedIn() && request.auth.uid == userId && (
+        (request.resource.data.role == 'customer' && request.resource.data.status == 'active')
+        || (request.resource.data.role == 'stylist' && request.resource.data.status == 'pending')
+        || (request.resource.data.role == 'owner'
+            && request.auth.token.email == 'carolyn.owner@truelengths.com'
+            && request.resource.data.status == 'active')
       );
 
-      // Update rule:
-      // - Users editing their own profile CANNOT change role, status, or salonId
-      // - Owners can update any profile fields (e.g. approving staff or assigning roles)
-      allow update: if request.auth != null && (
-        (request.auth.uid == userId &&
-         request.resource.data.role == resource.data.role &&
-         request.resource.data.status == resource.data.status &&
-         request.resource.data.salonId == resource.data.salonId) ||
-        request.auth.token.email == 'carolyn.owner@truelengths.com' ||
-        resource.data.role == 'owner'
+      allow update: if isSignedIn() && (
+        (request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.salonId == resource.data.salonId)
+        || isActiveOwner()
       );
 
-      // Delete rule: Protected
-      allow delete: if request.auth != null && (
-        request.auth.token.email == 'carolyn.owner@truelengths.com'
-      );
+      allow delete: if isActiveOwner();
     }
 
-    // Salons Collection
+    // ------------------------------------------------------------------
+    // Business catalogs — owner-controlled writes
+    // ------------------------------------------------------------------
+    match /services/{id} {
+      allow read: if isSignedIn();
+      allow write: if isActiveOwner();
+    }
+
+    match /stylists/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isActiveOwner() || (isActiveStylist() && request.auth.uid == id);
+      allow delete: if isActiveOwner();
+    }
+
+    match /appointments/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        isStaffOrOwner()
+        || resource.data.customerId == request.auth.uid
+      );
+      allow delete: if isActiveOwner();
+    }
+
+    match /gallery/{id} {
+      allow read: if isSignedIn();
+      allow write: if isActiveOwner() || isActiveStylist();
+    }
+
+    match /inventory/{id} {
+      allow read: if isStaffOrOwner();
+      allow write: if isActiveOwner();
+    }
+
+    match /formulas/{id} {
+      allow read: if isStaffOrOwner();
+      allow write: if isStaffOrOwner();
+    }
+
+    match /loyaltyRewards/{id} {
+      allow read: if isSignedIn();
+      allow write: if isActiveOwner();
+    }
+
+    match /giftCards/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isActiveOwner();
+    }
+
+    match /notifications/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
+    }
+
     match /salons/{salonId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if isSignedIn();
+      allow write: if isActiveOwner();
     }
 
-    // Staff Invites
     match /staffInvites/{inviteId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read, write: if isActiveOwner();
     }
 
-    // Default fallback for other collections
     match /{document=**} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

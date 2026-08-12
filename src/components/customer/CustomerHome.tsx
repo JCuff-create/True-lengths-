@@ -196,7 +196,12 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         {/* Horizontally Scrolling Carousel with Snapping Behavior */}
         <div className="relative">
           <div className="flex gap-5 sm:gap-6 overflow-x-auto snap-x snap-mandatory scrollbar-none pb-6 pt-2 -mx-4 px-4 sm:-mx-6 sm:px-6">
-            {gallery.map((item) => (
+            {gallery.length === 0 ? (
+              <div className="w-full py-12 text-center text-sm text-[#2D2D2D]/60 bg-[#F4F1EC] rounded-2xl border border-[#B68A4C]/20">
+                No portfolio looks yet.
+              </div>
+            ) : (
+            gallery.map((item) => (
               <div
                 key={item.id}
                 onClick={() => setSelectedPortfolioItem(item)}
@@ -234,7 +239,8 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                   </p>
                 </div>
               </div>
-            ))}
+            ))
+            )}
           </div>
         </div>
 

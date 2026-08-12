@@ -332,7 +332,12 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
         {filteredInventory.length === 0 ? (
           <div className="p-8 text-center bg-[#FAF8F5] rounded-2xl border border-[#B68A4C]/20 text-[#2D2D2D]/60 space-y-2">
             <Boxes className="w-8 h-8 mx-auto text-[#B68A4C]" />
-            <p className="text-sm font-semibold">No inventory items found matching your filters.</p>
+            <p className="text-sm font-semibold">
+              {inventory.length === 0
+                ? 'No inventory items yet.'
+                : 'No inventory items found matching your filters.'}
+            </p>
+            {inventory.length > 0 && (
             <button
               onClick={() => {
                 setFilter('all');
@@ -342,6 +347,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
             >
               Reset Filters
             </button>
+            )}
           </div>
         ) : (
           filteredInventory.map((item) => {

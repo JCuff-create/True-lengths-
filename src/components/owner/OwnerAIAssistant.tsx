@@ -7,16 +7,18 @@ interface OwnerAIAssistantProps {
 }
 
 export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) => {
+  const greeting = `I am your True Lengths Executive AI Operations Advisor. Live salon metrics from Firestore: $${metrics.totalRevenue.toLocaleString()} completed revenue across ${metrics.totalAppointments} appointments. How can I assist your business growth today?`;
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'om1',
       sender: 'assistant',
-      text: "Good morning Carolyn. I am your True Lengths Executive AI Operations Advisor. Monthly revenue is currently at $24,350 (+12.5% MoM). How can I assist your business growth today?",
+      text: greeting,
       timestamp: 'Just now',
       actionablePrompts: [
         "Who hasn't returned in 8 weeks?",
-        "Which service yields highest profit margin?",
-        "Show top performing stylist revenue"
+        'Which service yields highest profit margin?',
+        'Show top performing stylist revenue',
       ],
     },
   ]);
