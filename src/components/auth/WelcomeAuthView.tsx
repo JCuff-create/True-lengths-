@@ -1,28 +1,33 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { UserRole } from '../../types';
 import {
   Sparkles,
   Lock,
   Mail,
   User,
   Phone,
+  Scissors,
+  CheckCircle2,
   AlertCircle,
   KeyRound,
   ShieldCheck,
-  Scissors,
+  UserPlus,
+  Crown
 } from 'lucide-react';
+
 export const WelcomeAuthView: React.FC = () => {
   const {
     signIn,
     signUpCustomer,
     signUpStaff,
+    demoQuickLogin,
     authError,
     clearError,
     loading
   } = useAuth();
 
   const [mode, setMode] = useState<'signin' | 'register_customer' | 'staff_login'>('signin');
-  const [staffMode, setStaffMode] = useState<'signin' | 'register'>('signin');
 
   // Form Fields
   const [email, setEmail] = useState('');
@@ -61,20 +66,26 @@ export const WelcomeAuthView: React.FC = () => {
           hairType
         });
       } else if (mode === 'staff_login') {
-        if (staffMode === 'signin') {
+        // First try standard staff sign in, if fails with user-not-found then offer staff registration
+        try {
           await signIn(email, password);
-        } else {
-          await signUpStaff({
-            email,
-            pass: password,
-            name: fullName,
-            phone,
-            inviteCode
-          });
+        } catch (err: any) {
+          if (fullName.trim()) {
+            // Attempt staff sign up with invite code
+            await signUpStaff({
+              email,
+              pass: password,
+              name: fullName,
+              phone,
+              inviteCode
+            });
+          } else {
+            throw err;
+          }
         }
       }
     } catch (err) {
-      console.error('Auth action error:', err);
+      console.error("Auth action error:", err);
     } finally {
       setIsSubmitting(false);
     }
@@ -132,7 +143,7 @@ export const WelcomeAuthView: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => { setMode('staff_login'); setStaffMode('signin'); clearError(); }}
+              onClick={() => { setMode('staff_login'); clearError(); }}
               className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
                 mode === 'staff_login'
                   ? 'bg-[#2D2D2D] text-[#B68A4C] shadow-sm'
@@ -147,13 +158,13 @@ export const WelcomeAuthView: React.FC = () => {
           <div className="bg-[#FAF8F5] p-3 rounded-2xl border border-[#B68A4C]/20 text-xs text-[#8B5E34] flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-[#B68A4C] shrink-0" />
             {mode === 'signin' && (
-              <span>Sign in to open your permanently assigned portal (customer, stylist, or owner).</span>
+              <span>Sign in with your email and password to access your appointments & rewards.</span>
             )}
             {mode === 'register_customer' && (
-              <span>Create a customer account only. Stylist and owner roles cannot be chosen here.</span>
+              <span>Create your customer account. (Receives 100 bonus loyalty points!)</span>
             )}
             {mode === 'staff_login' && (
-              <span>Staff sign-in for existing stylists/owners, or stylist registration with an owner invite.</span>
+              <span>Stylist & Salon Owner Portal. Stylists must be approved by Owner Carolyn R.</span>
             )}
           </div>
 
@@ -174,33 +185,10 @@ export const WelcomeAuthView: React.FC = () => {
             </div>
           )}
 
-          {mode === 'staff_login' && (
-            <div className="flex rounded-xl bg-[#F4F1EC] p-1 border border-[#B68A4C]/15 text-[11px] font-semibold">
-              <button
-                type="button"
-                onClick={() => { setStaffMode('signin'); clearError(); }}
-                className={`flex-1 py-1.5 rounded-lg cursor-pointer ${
-                  staffMode === 'signin' ? 'bg-white text-[#2D2D2D] shadow-sm' : 'text-[#8B5E34]'
-                }`}
-              >
-                Staff Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => { setStaffMode('register'); clearError(); }}
-                className={`flex-1 py-1.5 rounded-lg cursor-pointer ${
-                  staffMode === 'register' ? 'bg-white text-[#2D2D2D] shadow-sm' : 'text-[#8B5E34]'
-                }`}
-              >
-                Stylist Invite Signup
-              </button>
-            </div>
-          )}
-
           {/* Auth Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {(mode === 'register_customer' || (mode === 'staff_login' && staffMode === 'register')) && (
+            {(mode === 'register_customer' || (mode === 'staff_login' && fullName !== '')) && (
               <div>
                 <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">Full Name</label>
                 <div className="relative">
@@ -209,7 +197,7 @@ export const WelcomeAuthView: React.FC = () => {
                     type="text"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    required
+                    required={mode === 'register_customer'}
                     placeholder="e.g. Jasmine Taylor"
                     className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                   />
@@ -226,7 +214,7 @@ export const WelcomeAuthView: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder={mode === 'staff_login' ? 'stylist@truelengths.com' : 'jasmine@example.com'}
+                  placeholder={mode === 'staff_login' ? 'carolyn.owner@truelengths.com' : 'jasmine@example.com'}
                   className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                 />
               </div>
@@ -278,10 +266,10 @@ export const WelcomeAuthView: React.FC = () => {
               </>
             )}
 
-            {mode === 'staff_login' && staffMode === 'register' && (
-              <div className="pt-1 space-y-2">
+            {mode === 'staff_login' && (
+              <div className="pt-1">
                 <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">
-                  Owner Stylist Invite Code (Required)
+                  Owner Staff VIP Invite Code (Optional)
                 </label>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-[#B68A4C] absolute left-3 top-2.5" />
@@ -289,15 +277,12 @@ export const WelcomeAuthView: React.FC = () => {
                     type="text"
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
-                    required
-                    placeholder="Paste invite code from salon owner"
-                    autoComplete="off"
+                    placeholder="Enter TL-STYLIST-VIP to bypass review"
                     className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                   />
                 </div>
-                <p className="text-[10px] text-gray-500 flex items-start gap-1">
-                  <Scissors className="w-3 h-3 mt-0.5 shrink-0 text-[#8B5E34]" />
-                  Invite codes are issued by the owner and verified on the server. Creates a stylist account in pending status until approved. Owner accounts cannot be created here.
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Unverified staff accounts enter a pending state awaiting Owner approval.
                 </p>
               </div>
             )}
@@ -314,19 +299,57 @@ export const WelcomeAuthView: React.FC = () => {
                   <ShieldCheck className="w-4 h-4" />
                   {mode === 'signin' && 'Sign In'}
                   {mode === 'register_customer' && 'Create Customer Account'}
-                  {mode === 'staff_login' && staffMode === 'signin' && 'Staff Sign In'}
-                  {mode === 'staff_login' && staffMode === 'register' && 'Request Stylist Access'}
+                  {mode === 'staff_login' && 'Staff Sign In / Register'}
                 </>
               )}
             </button>
 
           </form>
 
+          {/* Instant Quick Demo Switcher */}
+          <div className="pt-4 border-t border-[#B68A4C]/20 space-y-3">
+            <p className="text-center text-[11px] font-bold text-[#8B5E34] uppercase tracking-wider flex items-center justify-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-[#B68A4C]" /> Instant Role Demo Login
+            </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => demoQuickLogin('customer')}
+                className="p-2 rounded-xl bg-[#FAF8F5] border border-[#B68A4C]/30 hover:border-[#8B5E34] text-center transition-all cursor-pointer group"
+              >
+                <User className="w-4 h-4 text-[#8B5E34] mx-auto mb-1 group-hover:scale-110 transition-transform" />
+                <span className="block text-[11px] font-bold text-[#2D2D2D]">Customer</span>
+                <span className="block text-[9px] text-[#8B5E34]">Jasmine R.</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => demoQuickLogin('stylist')}
+                className="p-2 rounded-xl bg-[#FAF8F5] border border-[#B68A4C]/30 hover:border-[#8B5E34] text-center transition-all cursor-pointer group"
+              >
+                <Scissors className="w-4 h-4 text-[#8B5E34] mx-auto mb-1 group-hover:scale-110 transition-transform" />
+                <span className="block text-[11px] font-bold text-[#2D2D2D]">Stylist</span>
+                <span className="block text-[9px] text-[#8B5E34]">Carolyn R.</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => demoQuickLogin('owner')}
+                className="p-2 rounded-xl bg-[#2D2D2D] border border-[#B68A4C] text-center transition-all cursor-pointer group"
+              >
+                <Crown className="w-4 h-4 text-[#B68A4C] mx-auto mb-1 group-hover:scale-110 transition-transform" />
+                <span className="block text-[11px] font-bold text-[#FAF8F5]">Owner</span>
+                <span className="block text-[9px] text-[#B68A4C]">Carolyn R.</span>
+              </button>
+            </div>
+          </div>
+
         </div>
 
         {/* Security Footer Note */}
         <p className="text-center text-[10px] text-gray-500 max-w-xs mx-auto">
-          Roles are locked in Firestore after login. Protected by Firebase Authentication & security rules.
+          Protected by Firebase Role-Based Security Rules & Firestore Document Controls.
         </p>
 
       </div>

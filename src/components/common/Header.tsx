@@ -1,9 +1,11 @@
 import React from 'react';
 import { UserRole, UserProfile } from '../../types';
-import { Crown, Scissors, User, Bell, ShieldCheck, LogOut, Lock } from 'lucide-react';
+import { Sparkles, Crown, Scissors, User, Bell, ShieldCheck, LogOut } from 'lucide-react';
 
 interface HeaderProps {
   currentRole: UserRole;
+  actualRole?: UserRole;
+  onRoleChange: (role: UserRole) => void;
   currentUser: UserProfile;
   onHomeClick?: () => void;
   unreadCount?: number;
@@ -13,29 +15,10 @@ interface HeaderProps {
   onSignOut?: () => void;
 }
 
-function RoleBadge({ role }: { role: UserRole }) {
-  const label =
-    role === 'customer' ? 'Customer Portal' : role === 'stylist' ? 'Stylist Portal' : 'Owner OS';
-  const Icon = role === 'customer' ? User : role === 'stylist' ? Scissors : Crown;
-  const activeClass =
-    role === 'owner'
-      ? 'bg-[#B68A4C] text-[#FAF8F5]'
-      : 'bg-[#8B5E34] text-[#FAF8F5]';
-
-  return (
-    <div
-      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium text-xs ${activeClass} shadow-sm`}
-      title="Your account role is locked and cannot be switched"
-    >
-      <Lock className="w-3 h-3 opacity-80" />
-      <Icon className="w-3.5 h-3.5" />
-      <span>{label}</span>
-    </div>
-  );
-}
-
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
+  actualRole = 'customer',
+  onRoleChange,
   currentUser,
   onHomeClick,
   unreadCount = 0,
@@ -44,6 +27,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStaffApproval,
   onSignOut,
 }) => {
+  const canSwitchRole = actualRole === 'owner' || actualRole === 'stylist';
+
   return (
     <header className="sticky top-0 z-40 bg-[#FAF8F5]/95 backdrop-blur-md border-b border-[#B68A4C]/15 px-3 sm:px-6 py-2.5 sm:py-3 transition-colors shadow-xs">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
@@ -69,15 +54,92 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </button>
 
-        {/* Locked role badge & actions — no portal switcher */}
+        {/* Role Selector Badge & Actions */}
         <div className="flex items-center space-x-1.5 sm:space-x-4 shrink-0">
-          <div className="hidden sm:flex">
-            <RoleBadge role={currentRole} />
-          </div>
-          <div className="sm:hidden flex items-center bg-[#F4F1EC] px-2 py-1 rounded-lg border border-[#B68A4C]/30 text-[11px] font-semibold text-[#8B5E34] capitalize">
-            <Lock className="w-3 h-3 mr-1" />
-            {currentRole}
-          </div>
+          
+          {/* Quick Role Switcher Buttons (Only for Owner or Stylist) */}
+          {actualRole === 'owner' && (
+            <div className="hidden md:flex items-center bg-[#F4F1EC] p-1 rounded-full border border-[#B68A4C]/20 text-xs">
+              <button
+                onClick={() => onRoleChange('customer')}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all cursor-pointer ${
+                  currentRole === 'customer'
+                    ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
+                    : 'text-[#2D2D2D] hover:text-[#8B5E34]'
+                }`}
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Customer</span>
+              </button>
+
+              <button
+                onClick={() => onRoleChange('stylist')}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all cursor-pointer ${
+                  currentRole === 'stylist'
+                    ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
+                    : 'text-[#2D2D2D] hover:text-[#8B5E34]'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>Stylist</span>
+              </button>
+
+              <button
+                onClick={() => onRoleChange('owner')}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all cursor-pointer ${
+                  currentRole === 'owner'
+                    ? 'bg-[#B68A4C] text-[#FAF8F5] shadow-sm'
+                    : 'text-[#2D2D2D] hover:text-[#B68A4C]'
+                }`}
+              >
+                <Crown className="w-3.5 h-3.5" />
+                <span>Owner OS</span>
+              </button>
+            </div>
+          )}
+
+          {actualRole === 'stylist' && (
+            <div className="hidden md:flex items-center bg-[#F4F1EC] p-1 rounded-full border border-[#B68A4C]/20 text-xs">
+              <button
+                onClick={() => onRoleChange('stylist')}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all cursor-pointer ${
+                  currentRole === 'stylist'
+                    ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
+                    : 'text-[#2D2D2D] hover:text-[#8B5E34]'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>Stylist</span>
+              </button>
+
+              <button
+                onClick={() => onRoleChange('customer')}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-medium transition-all cursor-pointer ${
+                  currentRole === 'customer'
+                    ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
+                    : 'text-[#2D2D2D] hover:text-[#8B5E34]'
+                }`}
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Customer</span>
+              </button>
+            </div>
+          )}
+
+          {/* Role Indicator Badge (Mobile) */}
+          {canSwitchRole && (
+            <div className="md:hidden flex items-center">
+              <select
+                value={currentRole}
+                onChange={(e) => onRoleChange(e.target.value as UserRole)}
+                className="bg-[#F4F1EC] text-[#8B5E34] font-semibold text-[11px] border border-[#B68A4C]/30 rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
+              >
+                {actualRole === 'owner' && <option value="owner">View: Owner OS</option>}
+                <option value="stylist">View: Stylist</option>
+                <option value="customer">View: Customer</option>
+              </select>
+            </div>
+          )}
 
           {/* Notifications Bell */}
           <button
@@ -93,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* Staff Management (Owner only) */}
+          {/* Staff Management (Owner) */}
           {currentRole === 'owner' && onOpenStaffApproval && (
             <button
               onClick={onOpenStaffApproval}
