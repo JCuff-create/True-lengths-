@@ -2,27 +2,125 @@
   "entities": {
     "users": {
       "title": "Users",
-      "description": "User profiles for customers, stylists, and salon owner",
+      "description": "Auth-linked profiles for customers, stylists, and owners",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "email": { "type": "string" },
         "name": { "type": "string" },
-        "phone": { "type": "string" },
         "role": { "type": "string", "enum": ["customer", "stylist", "owner"] },
         "status": { "type": "string", "enum": ["active", "pending", "disabled"] },
-        "salonId": { "type": "string" },
-        "avatar": { "type": "string" },
-        "hairType": { "type": "string" },
-        "loyaltyPoints": { "type": "number" },
-        "loyaltyTier": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "salonId": { "type": "string" }
       },
       "required": ["uid", "email", "name", "role", "status", "salonId"]
     },
+    "services": {
+      "title": "Services",
+      "description": "Owner-managed bookable service catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "durationMinutes": { "type": "number" },
+        "category": { "type": "string" }
+      },
+      "required": ["id", "name", "price", "durationMinutes"]
+    },
+    "stylists": {
+      "title": "Stylists Directory",
+      "description": "Public stylist cards for booking and schedules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "commissionRate": { "type": "number" }
+      },
+      "required": ["id", "name"]
+    },
+    "appointments": {
+      "title": "Appointments",
+      "description": "Booked salon appointments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "stylistId": { "type": "string" },
+        "status": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" }
+      },
+      "required": ["id", "customerId", "serviceId", "stylistId", "status", "date", "time"]
+    },
+    "gallery": {
+      "title": "Gallery",
+      "description": "Portfolio / before-after gallery items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "afterUrl": { "type": "string" }
+      },
+      "required": ["id", "title", "afterUrl"]
+    },
+    "inventory": {
+      "title": "Inventory",
+      "description": "Owner-managed product stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "stockCount": { "type": "number" }
+      },
+      "required": ["id", "name", "stockCount"]
+    },
+    "formulas": {
+      "title": "Hair Formulas",
+      "description": "Stylist color/formula notes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientName": { "type": "string" }
+      },
+      "required": ["id", "clientName"]
+    },
+    "loyaltyRewards": {
+      "title": "Loyalty Rewards",
+      "description": "Owner-managed loyalty catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "pointsRequired": { "type": "number" }
+      },
+      "required": ["id", "title", "pointsRequired"]
+    },
+    "giftCards": {
+      "title": "Gift Cards",
+      "description": "Purchased gift cards",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "currentBalance": { "type": "number" }
+      },
+      "required": ["id", "code", "currentBalance"]
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "In-app notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "targetRole": { "type": "string" }
+      },
+      "required": ["id", "title", "targetRole"]
+    },
     "salons": {
       "title": "Salons",
-      "description": "Salon locations and organization details",
+      "description": "Salon organization settings",
       "type": "object",
       "properties": {
         "salonId": { "type": "string" },
@@ -30,20 +128,6 @@
         "ownerUid": { "type": "string" }
       },
       "required": ["salonId", "name", "ownerUid"]
-    },
-    "staffInvites": {
-      "title": "Staff Invites",
-      "description": "Owner invitation links and codes for stylists",
-      "type": "object",
-      "properties": {
-        "inviteId": { "type": "string" },
-        "email": { "type": "string" },
-        "role": { "type": "string", "enum": ["stylist"] },
-        "salonId": { "type": "string" },
-        "createdBy": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "used", "revoked"] }
-      },
-      "required": ["inviteId", "email", "role", "salonId", "createdBy", "status"]
     }
   }
 }

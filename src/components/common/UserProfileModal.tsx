@@ -7,7 +7,7 @@ interface UserProfileModalProps {
   onClose: () => void;
   currentUser: UserProfile;
   allProfiles?: UserProfile[];
-  onUpdateProfile: (updated: UserProfile) => void;
+  onUpdateProfile: (updated: UserProfile) => void | Promise<void>;
   onCreateProfile?: (newProfile: UserProfile) => void;
   onSelectProfile?: (profileId: string) => void;
   onDeleteProfile?: (profileId: string) => void;
@@ -56,7 +56,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editName.trim()) return;
 
@@ -70,8 +70,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       notes: editNotes.trim(),
     };
 
-    onUpdateProfile(updated);
-    showToast('Profile changes saved successfully! ✨');
+    try {
+      await onUpdateProfile(updated);
+      showToast('Profile saved to Firestore.');
+    } catch {
+      showToast('Failed to save profile. Changes were not kept.');
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

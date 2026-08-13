@@ -7,7 +7,6 @@ import {
   UserX,
   Clock,
   Key,
-  Copy,
   Check,
   Users,
   AlertCircle,
@@ -30,7 +29,6 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
     disableUserAccount
   } = useAuth();
 
-  const [copiedCode, setCopiedCode] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -43,7 +41,7 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
   const handleApprove = async (uid: string, name: string) => {
     try {
       await approveStaffAccount(uid);
-      showToast(`Approved stylist account for ${name}! 🎉`);
+      showToast(`Approved stylist account for ${name}. Saved to Firestore.`);
     } catch (err: any) {
       alert(err.message);
     }
@@ -53,17 +51,11 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
     if (confirm(`Are you sure you want to disable access for ${name}?`)) {
       try {
         await disableUserAccount(uid);
-        showToast(`Account for ${name} has been disabled.`);
+        showToast(`Account for ${name} has been disabled in Firestore.`);
       } catch (err: any) {
         alert(err.message);
       }
     }
-  };
-
-  const copyInviteCode = () => {
-    navigator.clipboard.writeText('TL-STYLIST-VIP');
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2500);
   };
 
   const activeStaff = allProfiles.filter((p) => p.role === 'stylist' && p.status === 'active');
@@ -105,27 +97,16 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
         {/* Content Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1">
           
-          {/* Owner VIP Invite Code Card */}
-          <div className="bg-gradient-to-r from-[#2D2D2D] to-[#3A332C] p-4 rounded-2xl border border-[#B68A4C]/40 text-[#FAF8F5] flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="space-y-1 text-center sm:text-left">
-              <span className="text-[10px] uppercase tracking-widest text-[#B68A4C] font-bold flex items-center justify-center sm:justify-start gap-1">
-                <Key className="w-3 h-3" /> Owner Staff Invitation Key
+          {/* Staff onboarding note */}
+          <div className="bg-gradient-to-r from-[#2D2D2D] to-[#3A332C] p-4 rounded-2xl border border-[#B68A4C]/40 text-[#FAF8F5]">
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase tracking-widest text-[#B68A4C] font-bold flex items-center gap-1">
+                <Key className="w-3 h-3" /> Staff Onboarding
               </span>
-              <p className="text-xs font-bold font-mono tracking-wider text-white">
-                Code: TL-STYLIST-VIP
-              </p>
-              <p className="text-[11px] text-gray-300">
-                Provide this key to incoming stylists to auto-approve their account upon sign-up.
+              <p className="text-xs text-gray-300 leading-relaxed">
+                New stylists register with a staff account and remain <strong className="text-white">pending</strong> until you approve them here. Approvals are written to Firestore and take effect immediately.
               </p>
             </div>
-
-            <button
-              onClick={copyInviteCode}
-              className="px-4 py-2 rounded-xl bg-[#8B5E34] hover:bg-[#B68A4C] text-white text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0"
-            >
-              {copiedCode ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedCode ? 'Code Copied!' : 'Copy VIP Code'}</span>
-            </button>
           </div>
 
           {/* SECTION 1: PENDING STYLIST REQUESTS */}

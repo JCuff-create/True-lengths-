@@ -7,7 +7,7 @@ export const CustomerAIAssistant: React.FC = () => {
     {
       id: 'm1',
       sender: 'assistant',
-      text: "Hi Jasmine! Welcome to True Lengths. I'm your virtual specialist for textured hair care (3A-4C), silk presses, protective styles, loc care, and melanin skin treatments. How can I assist your crown today?",
+      text: "Welcome to True Lengths. I'm your virtual specialist for textured hair care (3A-4C), silk presses, protective styles, loc care, and melanin skin treatments. How can I assist your crown today?",
       timestamp: 'Just now',
       actionablePrompts: [
         'How do I care for my silk press in humidity?',
@@ -124,7 +124,7 @@ export const CustomerAIAssistant: React.FC = () => {
               {
                 id: `m-${Date.now()}`,
                 sender: 'assistant',
-                text: "Hi Jasmine! How can I assist your crown and melanin skin care today?",
+                text: "Welcome back! How can I assist your crown and melanin skin care today?",
                 timestamp: 'Just now',
                 actionablePrompts: [
                   'How do I care for my silk press in humidity?',

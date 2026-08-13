@@ -1,44 +1,90 @@
-import React, { useState } from 'react';
-import { Service, Stylist, Appointment } from '../../types';
+import React, { useState, useMemo } from 'react';
+import { Service, Stylist, Appointment, UserProfile } from '../../types';
 import { ChevronRight, Check, Clock, Calendar, User, Sparkles, ArrowLeft, AlertCircle } from 'lucide-react';
 
 interface BookingFlowProps {
   services: Service[];
   stylists: Stylist[];
   initialCategory?: string;
+  customer: UserProfile;
   onBookingComplete: (newAppointment: Appointment) => void;
   onCancel: () => void;
+}
+
+function buildUpcomingDates(count = 6) {
+  const out: { dayName: string; dayNum: string; dateStr: string }[] = [];
+  const start = new Date();
+  for (let i = 1; out.length < count; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    if (d.getDay() === 0) continue; // skip Sundays
+    out.push({
+      dayName: d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
+      dayNum: String(d.getDate()).padStart(2, '0'),
+      dateStr: d.toISOString().slice(0, 10),
+    });
+  }
+  return out;
 }
 
 export const BookingFlow: React.FC<BookingFlowProps> = ({
   services,
   stylists,
   initialCategory,
+  customer,
   onBookingComplete,
   onCancel,
 }) => {
+  const datesList = useMemo(() => buildUpcomingDates(6), []);
   const [step, setStep] = useState<number>(1);
   const [selectedService, setSelectedService] = useState<Service | null>(
     initialCategory
-      ? services.find((s) => s.category.toLowerCase().includes(initialCategory.toLowerCase())) || services[0]
-      : services[0]
+      ? services.find((s) => s.category.toLowerCase().includes(initialCategory.toLowerCase())) ||
+          services[0] ||
+          null
+      : services[0] || null
   );
-  const [selectedDate, setSelectedDate] = useState<string>('2026-08-07');
+  const [selectedDate, setSelectedDate] = useState<string>(datesList[0]?.dateStr || '');
   const [selectedTime, setSelectedTime] = useState<string>('10:00 AM');
-  const [selectedStylist, setSelectedStylist] = useState<Stylist | null>(stylists[0]);
+  const [selectedStylist, setSelectedStylist] = useState<Stylist | null>(stylists[0] || null);
   const [clientNotes, setClientNotes] = useState<string>('');
   const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
 
   const availableTimes = ['09:00 AM', '10:00 AM', '11:30 AM', '01:00 PM', '02:30 PM', '04:00 PM'];
 
-  const datesList = [
-    { dayName: 'FRI', dayNum: '07', dateStr: '2026-08-07' },
-    { dayName: 'SAT', dayNum: '08', dateStr: '2026-08-08' },
-    { dayName: 'TUE', dayNum: '11', dateStr: '2026-08-11' },
-    { dayName: 'WED', dayNum: '12', dateStr: '2026-08-12' },
-    { dayName: 'THU', dayNum: '13', dateStr: '2026-08-13' },
-    { dayName: 'FRI', dayNum: '14', dateStr: '2026-08-14' },
-  ];
+  if (services.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4 pb-12 text-center py-16">
+        <h2 className="font-serif text-2xl font-bold text-[#2D2D2D]">No services yet</h2>
+        <p className="text-sm text-gray-600">
+          The salon has not published bookable services. Please check back soon.
+        </p>
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 rounded-xl bg-[#8B5E34] text-[#FAF8F5] text-xs font-bold"
+        >
+          Return Home
+        </button>
+      </div>
+    );
+  }
+
+  if (stylists.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4 pb-12 text-center py-16">
+        <h2 className="font-serif text-2xl font-bold text-[#2D2D2D]">No stylists available</h2>
+        <p className="text-sm text-gray-600">
+          Stylist profiles have not been published yet. Please check back soon.
+        </p>
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 rounded-xl bg-[#8B5E34] text-[#FAF8F5] text-xs font-bold"
+        >
+          Return Home
+        </button>
+      </div>
+    );
+  }
 
   const handleNextStep = () => {
     if (step < 4) setStep(step + 1);
@@ -53,9 +99,10 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
 
     const newApt: Appointment = {
       id: `apt-${Date.now()}`,
-      customerId: 'cust-1',
-      customerName: 'Jasmine R.',
-      customerPhone: '(555) 234-5678',
+      customerId: customer.uid || customer.id,
+      customerName: customer.name,
+      customerPhone: customer.phone || '',
+      customerAvatar: customer.avatar,
       serviceId: selectedService.id,
       serviceName: selectedService.name,
       price: selectedService.price,

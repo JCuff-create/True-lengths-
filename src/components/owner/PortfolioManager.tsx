@@ -346,7 +346,9 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
           <p className="text-[10px] font-bold uppercase tracking-wider text-[#B68A4C] flex items-center gap-1">
             <Scissors className="w-3.5 h-3.5" /> Top Performer
           </p>
-          <h3 className="font-serif text-sm font-bold text-[#FAF8F5] truncate">Carolyn C. (Custom Color)</h3>
+          <h3 className="font-serif text-sm font-bold text-[#FAF8F5] truncate">
+            {gallery[0]?.stylistName || 'No looks yet'}
+          </h3>
         </div>
       </div>
 
@@ -517,7 +519,9 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
       {filteredGallery.length === 0 && (
         <div className="text-center py-12 bg-[#3D3D3D] rounded-2xl border border-[#B68A4C]/20 space-y-3">
           <ImageIcon className="w-12 h-12 text-[#B68A4C]/40 mx-auto" />
-          <p className="font-serif text-lg font-bold text-[#FAF8F5]">No photography found matching search</p>
+          <p className="font-serif text-lg font-bold text-[#FAF8F5]">
+            {gallery.length === 0 ? 'No portfolio looks yet.' : 'No photography found matching search'}
+          </p>
           <button
             onClick={() => {
               setSearchQuery('');
