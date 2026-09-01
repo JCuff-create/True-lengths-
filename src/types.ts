@@ -143,6 +143,8 @@ export interface GiftCard {
   recipientEmail: string;
   senderName: string;
   purchaseDate: string;
+  /** Firebase Auth UID of the purchaser — required for scoped Firestore reads */
+  createdByUid?: string;
 }
 
 export interface Review {

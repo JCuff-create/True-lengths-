@@ -10,17 +10,32 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function isActiveOwner() {
+    function hasUserDoc() {
       return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isActiveOwner() {
+      return hasUserDoc()
         && userDoc().role == 'owner'
         && userDoc().status == 'active';
     }
 
     function isActiveStylist() {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return hasUserDoc()
         && userDoc().role == 'stylist'
+        && userDoc().status == 'active';
+    }
+
+    function isPendingStylist() {
+      return hasUserDoc()
+        && userDoc().role == 'stylist'
+        && userDoc().status == 'pending';
+    }
+
+    function isActiveCustomer() {
+      return hasUserDoc()
+        && userDoc().role == 'customer'
         && userDoc().status == 'active';
     }
 
@@ -28,96 +43,151 @@ service cloud.firestore {
       return isActiveOwner() || isActiveStylist();
     }
 
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function selfRoleStatusSalonLocked() {
+      return request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.salonId == resource.data.salonId;
+    }
+
     // ------------------------------------------------------------------
-    // USERS — auth profiles
+    // USERS — private profiles. No public access.
+    // Customers: own doc only.
+    // Active stylists: own + customer/stylist profiles (salon ops; never owners).
+    // Owners: all profiles; only owners may change roles/statuses of others.
     // ------------------------------------------------------------------
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isActiveOwner()
+        || isSelf(userId)
+        || (isActiveStylist()
+            && resource.data.role in ['customer', 'stylist']);
 
-      allow create: if isSignedIn() && request.auth.uid == userId && (
-        (request.resource.data.role == 'customer' && request.resource.data.status == 'active')
-        || (request.resource.data.role == 'stylist' && request.resource.data.status == 'pending')
+      allow create: if isSelf(userId) && (
+        (request.resource.data.role == 'customer'
+          && request.resource.data.status == 'active'
+          && request.resource.data.uid == request.auth.uid)
+        || (request.resource.data.role == 'stylist'
+          && request.resource.data.status == 'pending'
+          && request.resource.data.uid == request.auth.uid)
         || (request.resource.data.role == 'owner'
-            && request.auth.token.email == 'carolyn.owner@truelengths.com'
-            && request.resource.data.status == 'active')
+          && request.resource.data.status == 'active'
+          && request.auth.token.email == 'carolyn.owner@truelengths.com'
+          && request.resource.data.uid == request.auth.uid)
       );
 
-      allow update: if isSignedIn() && (
-        (request.auth.uid == userId
-          && request.resource.data.role == resource.data.role
-          && request.resource.data.status == resource.data.status
-          && request.resource.data.salonId == resource.data.salonId)
-        || isActiveOwner()
-      );
+      allow update: if isActiveOwner()
+        || (isSelf(userId) && selfRoleStatusSalonLocked());
 
       allow delete: if isActiveOwner();
     }
 
     // ------------------------------------------------------------------
-    // Business catalogs — owner-controlled writes
+    // PUBLIC SALON CATALOG — read OK for browsing/booking; writes owner-only
     // ------------------------------------------------------------------
     match /services/{id} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isActiveOwner();
     }
 
     match /stylists/{id} {
-      allow read: if isSignedIn();
-      allow create, update: if isActiveOwner() || (isActiveStylist() && request.auth.uid == id);
-      allow delete: if isActiveOwner();
-    }
-
-    match /appointments/{id} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && (
-        isStaffOrOwner()
-        || resource.data.customerId == request.auth.uid
-      );
+      // Public directory for booking; stylists may update their own card
+      allow read: if true;
+      allow create: if isActiveOwner()
+        || (isActiveStylist() && isSelf(id));
+      allow update: if isActiveOwner()
+        || (isActiveStylist() && isSelf(id));
       allow delete: if isActiveOwner();
     }
 
     match /gallery/{id} {
-      allow read: if isSignedIn();
-      allow write: if isActiveOwner() || isActiveStylist();
+      allow read: if true;
+      allow create, update: if isStaffOrOwner();
+      allow delete: if isActiveOwner();
     }
 
+    match /loyaltyRewards/{id} {
+      allow read: if true;
+      allow write: if isActiveOwner();
+    }
+
+    match /salons/{salonId} {
+      allow read: if true;
+      allow write: if isActiveOwner();
+    }
+
+    // ------------------------------------------------------------------
+    // APPOINTMENTS — not public (contain customer PII)
+    // ------------------------------------------------------------------
+    match /appointments/{id} {
+      allow read: if isActiveOwner()
+        || isActiveStylist()
+        || (isSignedIn() && resource.data.customerId == request.auth.uid);
+
+      allow create: if isStaffOrOwner()
+        || (isActiveCustomer()
+            && request.resource.data.customerId == request.auth.uid);
+
+      allow update: if isStaffOrOwner()
+        || (isSignedIn()
+            && resource.data.customerId == request.auth.uid
+            && request.resource.data.customerId == resource.data.customerId);
+
+      allow delete: if isActiveOwner();
+    }
+
+    // ------------------------------------------------------------------
+    // STAFF-ONLY OPERATIONS DATA
+    // ------------------------------------------------------------------
     match /inventory/{id} {
       allow read: if isStaffOrOwner();
       allow write: if isActiveOwner();
     }
 
     match /formulas/{id} {
-      allow read: if isStaffOrOwner();
-      allow write: if isStaffOrOwner();
+      allow read, write: if isStaffOrOwner();
     }
 
-    match /loyaltyRewards/{id} {
-      allow read: if isSignedIn();
-      allow write: if isActiveOwner();
-    }
-
+    // ------------------------------------------------------------------
+    // GIFT CARDS — purchaser + owner; no public access to codes
+    // ------------------------------------------------------------------
     match /giftCards/{id} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow read: if isActiveOwner()
+        || (isSignedIn() && resource.data.createdByUid == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && request.resource.data.createdByUid == request.auth.uid;
+
       allow update, delete: if isActiveOwner();
     }
 
+    // ------------------------------------------------------------------
+    // NOTIFICATIONS — scoped by targetRole; owners see all
+    // ------------------------------------------------------------------
     match /notifications/{id} {
-      allow read: if isSignedIn();
+      allow read: if isActiveOwner()
+        || (hasUserDoc()
+            && (resource.data.targetRole == 'all'
+                || resource.data.targetRole == userDoc().role));
+
       allow create: if isSignedIn();
-      allow update, delete: if isSignedIn();
+
+      allow update, delete: if isActiveOwner()
+        || (hasUserDoc()
+            && (resource.data.targetRole == 'all'
+                || resource.data.targetRole == userDoc().role));
     }
 
-    match /salons/{salonId} {
-      allow read: if isSignedIn();
-      allow write: if isActiveOwner();
-    }
-
+    // ------------------------------------------------------------------
+    // STAFF INVITES — owner only (never readable by customers/stylists)
+    // ------------------------------------------------------------------
     match /staffInvites/{inviteId} {
       allow read, write: if isActiveOwner();
     }
 
+    // Default deny — no catch-all signed-in read/write
     match /{document=**} {
       allow read, write: if false;
     }
