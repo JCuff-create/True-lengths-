@@ -74,7 +74,7 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid)
         || (request.resource.data.role == 'owner'
           && request.resource.data.status == 'active'
-          && request.auth.token.email == 'carolyn.owner@truelengths.com'
+          && request.auth.token.email == 'truelengths@comcast.net'
           && request.resource.data.uid == request.auth.uid)
       );
 

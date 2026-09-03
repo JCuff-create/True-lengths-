@@ -21,7 +21,7 @@ async function seed() {
     const db = context.firestore();
     await setDoc(doc(db, 'users/owner1'), {
       uid: 'owner1',
-      email: 'carolyn.owner@truelengths.com',
+      email: 'truelengths@comcast.net',
       name: 'Owner',
       role: 'owner',
       status: 'active',
@@ -265,7 +265,7 @@ async function main() {
     await assertSucceeds(updateDoc(doc(stylist(), 'stylists/stylist1'), { bio: 'Updated bio' }));
   });
 
-  const owner = () => authedDb('owner1', 'carolyn.owner@truelengths.com');
+  const owner = () => authedDb('owner1', 'truelengths@comcast.net');
   await check('owner reads all user profiles', async () => {
     await assertSucceeds(getDoc(doc(owner(), 'users/customer1')));
     await assertSucceeds(getDoc(doc(owner(), 'users/stylist1')));

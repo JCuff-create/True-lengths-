@@ -52,7 +52,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const OWNER_BOOTSTRAP_EMAIL = 'carolyn.owner@truelengths.com';
+const OWNER_BOOTSTRAP_EMAIL = 'truelengths@comcast.net';
 
 function mapUserDoc(uid: string, email: string, data: Record<string, unknown>): UserProfile {
   return {
