@@ -13,6 +13,8 @@ import {
   updateDoc,
   collection,
   onSnapshot,
+  query,
+  where,
   serverTimestamp,
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -50,7 +52,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const OWNER_BOOTSTRAP_EMAIL = 'carolyn.owner@truelengths.com';
+const OWNER_BOOTSTRAP_EMAIL = 'truelengths@comcast.net';
 
 function mapUserDoc(uid: string, email: string, data: Record<string, unknown>): UserProfile {
   return {
@@ -145,14 +147,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (!userProfile || (userProfile.role !== 'owner' && userProfile.role !== 'stylist')) {
+    if (
+      !userProfile ||
+      userProfile.status !== 'active' ||
+      (userProfile.role !== 'owner' && userProfile.role !== 'stylist')
+    ) {
       setPendingStaffList([]);
       setAllProfiles([]);
       return;
     }
 
+    // Owners: full directory. Active stylists: customers + stylists only (rules deny owner profiles).
+    const usersQuery =
+      userProfile.role === 'owner'
+        ? collection(db, 'users')
+        : query(collection(db, 'users'), where('role', 'in', ['customer', 'stylist']));
+
     const unsub = onSnapshot(
-      collection(db, 'users'),
+      usersQuery,
       (snapshot) => {
         const profiles: UserProfile[] = [];
         const pending: UserProfile[] = [];
@@ -175,7 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
     return () => unsub();
-  }, [userProfile?.role, userProfile?.uid]);
+  }, [userProfile?.role, userProfile?.uid, userProfile?.status]);
 
   const signIn = async (email: string, pass: string) => {
     setLoading(true);

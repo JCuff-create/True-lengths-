@@ -84,7 +84,15 @@ function SalonAppContent() {
         ? 'stylist'
         : currentRole;
 
-  const salon = useSalonStore(Boolean(firebaseUser && userProfile));
+  const salon = useSalonStore(
+    firebaseUser && userProfile && userProfile.status !== 'disabled'
+      ? {
+          uid: userProfile.uid || userProfile.id,
+          role: userProfile.role,
+          status: userProfile.status,
+        }
+      : null
+  );
   const {
     services,
     stylists,
@@ -516,6 +524,7 @@ function SalonAppContent() {
   };
 
   const handleBuyGiftCard = async (amount: number, recipient: string) => {
+    const uid = currentUserProfile.uid || currentUserProfile.id;
     const newGc: GiftCard = {
       id: newId('gc'),
       code: `TL-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -525,6 +534,7 @@ function SalonAppContent() {
       recipientEmail: '',
       senderName: currentUserProfile.name,
       purchaseDate: new Date().toISOString().split('T')[0],
+      createdByUid: uid,
     };
     try {
       await save('giftCards', newGc.id, { ...newGc });
