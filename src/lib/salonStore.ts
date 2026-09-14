@@ -4,7 +4,10 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  query,
+  where,
   serverTimestamp,
+  type QueryConstraint,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -20,11 +23,12 @@ import {
   Stylist,
   AppNotification,
   UserProfile,
+  UserRole,
 } from '../types';
 
 export const DEFAULT_SALON_ID = 'truelengths-main';
 
-/** Top-level business collections — owner-writable, signed-in readable */
+/** Top-level business collections used by the salon OS */
 export const SALON_COLLECTIONS = {
   services: 'services',
   stylists: 'stylists',
@@ -85,11 +89,13 @@ export async function deleteSalonDoc(collectionName: SalonCollection, id: string
 export function subscribeSalonCollection<T extends { id: string }>(
   collectionName: SalonCollection,
   onData: (items: T[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  constraints: QueryConstraint[] = []
 ): Unsubscribe {
   const colRef = collection(db, collectionName);
+  const q = constraints.length > 0 ? query(colRef, ...constraints) : colRef;
   return onSnapshot(
-    colRef,
+    q,
     (snapshot) => {
       const items: T[] = [];
       snapshot.forEach((snap) => {
@@ -103,6 +109,26 @@ export function subscribeSalonCollection<T extends { id: string }>(
       onError?.(err);
     }
   );
+}
+
+export function appointmentConstraintsForRole(
+  role: UserRole,
+  uid: string
+): QueryConstraint[] {
+  if (role === 'customer') {
+    return [where('customerId', '==', uid)];
+  }
+  return [];
+}
+
+export function giftCardConstraintsForRole(role: UserRole, uid: string): QueryConstraint[] {
+  if (role === 'owner') return [];
+  return [where('createdByUid', '==', uid)];
+}
+
+export function notificationConstraintsForRole(role: UserRole): QueryConstraint[] {
+  if (role === 'owner') return [];
+  return [where('targetRole', 'in', [role, 'all'])];
 }
 
 /** Derive dashboard metrics from live appointments — never seed fake KPIs */
@@ -150,9 +176,7 @@ export function computeMetricsFromAppointments(
     }));
 
   const returning = new Set(
-    appointments
-      .filter((a) => a.status === 'completed')
-      .map((a) => a.customerId)
+    appointments.filter((a) => a.status === 'completed').map((a) => a.customerId)
   );
 
   return {

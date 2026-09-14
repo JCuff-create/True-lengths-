@@ -7,7 +7,7 @@ interface BookingFlowProps {
   stylists: Stylist[];
   initialCategory?: string;
   customer: UserProfile;
-  onBookingComplete: (newAppointment: Appointment) => void;
+  onBookingComplete: (newAppointment: Appointment) => void | Promise<void>;
   onCancel: () => void;
 }
 
@@ -48,6 +48,8 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
   const [selectedTime, setSelectedTime] = useState<string>('10:00 AM');
   const [selectedStylist, setSelectedStylist] = useState<Stylist | null>(stylists[0] || null);
   const [clientNotes, setClientNotes] = useState<string>('');
+  const [bookError, setBookError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
 
   const availableTimes = ['09:00 AM', '10:00 AM', '11:30 AM', '01:00 PM', '02:30 PM', '04:00 PM'];
@@ -94,8 +96,8 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
     if (step > 1) setStep(step - 1);
   };
 
-  const handleConfirmBooking = () => {
-    if (!selectedService || !selectedStylist) return;
+  const handleConfirmBooking = async () => {
+    if (!selectedService || !selectedStylist || isSaving) return;
 
     const newApt: Appointment = {
       id: `apt-${Date.now()}`,
@@ -115,10 +117,19 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
       notes: clientNotes,
     };
 
-    setIsConfirmed(true);
-    setTimeout(() => {
-      onBookingComplete(newApt);
-    }, 1500);
+    setBookError(null);
+    setIsSaving(true);
+    try {
+      await onBookingComplete(newApt);
+      setIsConfirmed(true);
+    } catch (err: any) {
+      setBookError(
+        err?.message ||
+          'Booking could not be saved. Please try again or choose another time.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -137,6 +148,26 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
         <div className="w-12" /> {/* Spacer */}
       </div>
 
+      {(services.length === 0 || stylists.length === 0) && (
+        <div className="bg-[#FAF8F5] border border-[#B68A4C]/20 rounded-2xl p-10 text-center space-y-3">
+          <AlertCircle className="w-10 h-10 text-[#B68A4C] mx-auto opacity-70" />
+          <h3 className="font-serif font-bold text-[#2D2D2D] text-lg">Booking unavailable</h3>
+          <p className="text-xs text-[#2D2D2D]/60 max-w-sm mx-auto">
+            {services.length === 0
+              ? 'No services are published yet. Please check back once the salon catalog is ready.'
+              : 'No stylists are available for booking right now.'}
+          </p>
+          <button
+            onClick={onCancel}
+            className="bg-[#8B5E34] text-[#FAF8F5] text-xs font-bold px-5 py-2.5 rounded-xl"
+          >
+            Return Home
+          </button>
+        </div>
+      )}
+
+      {services.length > 0 && stylists.length > 0 && (
+      <>
       {/* Stepper Progress Bar */}
       <div className="flex items-center justify-between px-2 sm:px-6">
         {[
@@ -389,20 +420,31 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
             </div>
           </div>
 
+          {bookError && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl p-3">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{bookError}</span>
+            </div>
+          )}
+
           <button
             onClick={handleConfirmBooking}
-            disabled={isConfirmed}
-            className="w-full bg-[#B68A4C] hover:bg-[#8B5E34] text-[#FAF8F5] font-bold py-4 rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-base"
+            disabled={isConfirmed || isSaving}
+            className="w-full bg-[#B68A4C] hover:bg-[#8B5E34] disabled:opacity-60 text-[#FAF8F5] font-bold py-4 rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-base"
           >
             {isConfirmed ? (
               <span className="flex items-center gap-2">
-                <Check className="w-5 h-5 animate-bounce" /> Confirmed! Redirecting...
+                <Check className="w-5 h-5" /> Confirmed! Redirecting...
               </span>
+            ) : isSaving ? (
+              <span>Saving booking...</span>
             ) : (
               <span>Confirm & Request Booking</span>
             )}
           </button>
         </div>
+      )}
+      </>
       )}
 
     </div>

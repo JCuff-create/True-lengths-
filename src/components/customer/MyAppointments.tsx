@@ -65,7 +65,7 @@ export const MyAppointments: React.FC<MyAppointmentsProps> = ({
             <CalendarIcon className="w-10 h-10 text-[#B68A4C] mx-auto opacity-60" />
             <h3 className="font-serif font-bold text-[#2D2D2D] text-lg">No {filter} appointments found</h3>
             <p className="text-xs text-[#2D2D2D]/60 max-w-sm mx-auto">
-              Ready for your next hair care session? Book an appointment with Carolyn, Tina, or Maria today.
+              You have no {filter} appointments yet. Book a service when you are ready.
             </p>
             <button
               onClick={onBookNew}
