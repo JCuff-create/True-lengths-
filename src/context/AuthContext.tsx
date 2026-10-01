@@ -13,6 +13,8 @@ import {
   updateDoc,
   collection,
   onSnapshot,
+  query,
+  where,
   serverTimestamp,
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -49,8 +51,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const OWNER_BOOTSTRAP_EMAIL = 'carolyn.owner@truelengths.com';
 
 function mapUserDoc(uid: string, email: string, data: Record<string, unknown>): UserProfile {
   return {
@@ -92,34 +92,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    if (email.toLowerCase() !== OWNER_BOOTSTRAP_EMAIL) {
-      setAuthError(
-        'No salon profile is linked to this account. Create a customer account or register as staff.'
-      );
-      await firebaseSignOut(auth);
-      setFirebaseUser(null);
-      setUserProfile(null);
-      return;
-    }
-
-    const newProfile: UserProfile = {
-      id: uid,
-      uid,
-      name: 'Carolyn R. (Owner)',
-      email,
-      role: 'owner',
-      status: 'active',
-      salonId: DEFAULT_SALON_ID,
-      avatar:
-        'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80',
-      memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-    };
-    await setDoc(userRef, {
-      ...newProfile,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    setUserProfile(newProfile);
+    // Production owners are provisioned out-of-band (Console/Admin). The client
+    // never creates or promotes owner profiles from an email allowlist.
+    setAuthError(
+      'No salon profile is linked to this account. Create a customer account or register as staff.'
+    );
+    await firebaseSignOut(auth);
+    setFirebaseUser(null);
+    setUserProfile(null);
   };
 
   useEffect(() => {
@@ -145,14 +125,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (!userProfile || (userProfile.role !== 'owner' && userProfile.role !== 'stylist')) {
+    if (
+      !userProfile ||
+      userProfile.status !== 'active' ||
+      (userProfile.role !== 'owner' && userProfile.role !== 'stylist')
+    ) {
       setPendingStaffList([]);
       setAllProfiles([]);
       return;
     }
 
+    // Owners: full directory. Active stylists: customers + stylists only (rules deny owner profiles).
+    const usersQuery =
+      userProfile.role === 'owner'
+        ? collection(db, 'users')
+        : query(collection(db, 'users'), where('role', 'in', ['customer', 'stylist']));
+
     const unsub = onSnapshot(
-      collection(db, 'users'),
+      usersQuery,
       (snapshot) => {
         const profiles: UserProfile[] = [];
         const pending: UserProfile[] = [];
@@ -175,7 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
     return () => unsub();
-  }, [userProfile?.role, userProfile?.uid]);
+  }, [userProfile?.role, userProfile?.uid, userProfile?.status]);
 
   const signIn = async (email: string, pass: string) => {
     setLoading(true);

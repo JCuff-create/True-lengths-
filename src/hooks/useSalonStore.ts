@@ -9,6 +9,8 @@ import {
   LoyaltyReward,
   Service,
   Stylist,
+  UserRole,
+  UserStatus,
 } from '../types';
 import {
   SALON_COLLECTIONS,
@@ -18,13 +20,22 @@ import {
   deleteSalonDoc,
   clearLegacyLocalDemoData,
   newId,
+  appointmentConstraintsForRole,
+  giftCardConstraintsForRole,
+  notificationConstraintsForRole,
 } from '../lib/salonStore';
 
+export type SalonActor = {
+  uid: string;
+  role: UserRole;
+  status?: UserStatus;
+};
+
 /**
- * Live Firestore subscriptions for salon business data.
- * Writes go to Firestore first; UI updates via onSnapshot (no optimistic fake seed).
+ * Live Firestore subscriptions scoped to the authenticated role.
+ * Customers never subscribe to inventory/formulas; queries match security rules.
  */
-export function useSalonStore(enabled: boolean) {
+export function useSalonStore(actor: SalonActor | null) {
   const [services, setServices] = useState<Service[]>(EMPTY_SALON_DATA.services);
   const [stylists, setStylists] = useState<Stylist[]>(EMPTY_SALON_DATA.stylists);
   const [appointments, setAppointments] = useState<Appointment[]>(EMPTY_SALON_DATA.appointments);
@@ -46,7 +57,7 @@ export function useSalonStore(enabled: boolean) {
   }, []);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!actor?.uid || !actor.role) {
       setServices([]);
       setStylists([]);
       setAppointments([]);
@@ -60,8 +71,16 @@ export function useSalonStore(enabled: boolean) {
       return;
     }
 
+    const isStaff =
+      (actor.role === 'owner' && actor.status === 'active') ||
+      (actor.role === 'stylist' && actor.status === 'active');
+    const canLoadOps = actor.status === 'active' || actor.role === 'customer';
     setDataLoading(true);
-    let pending = 9;
+    if (!canLoadOps) {
+      setDataLoading(false);
+      return;
+    }
+    let pending = isStaff ? 9 : 7;
     const done = () => {
       pending -= 1;
       if (pending <= 0) setDataLoading(false);
@@ -76,46 +95,68 @@ export function useSalonStore(enabled: boolean) {
         setStylists(items);
         done();
       }),
-      subscribeSalonCollection<Appointment>(SALON_COLLECTIONS.appointments, (items) => {
-        setAppointments(items);
-        done();
-      }),
+      subscribeSalonCollection<Appointment>(
+        SALON_COLLECTIONS.appointments,
+        (items) => {
+          setAppointments(items);
+          done();
+        },
+        undefined,
+        appointmentConstraintsForRole(actor.role, actor.uid)
+      ),
       subscribeSalonCollection<GalleryItem>(SALON_COLLECTIONS.gallery, (items) => {
         setGallery(items);
-        done();
-      }),
-      subscribeSalonCollection<InventoryItem>(SALON_COLLECTIONS.inventory, (items) => {
-        setInventory(items);
-        done();
-      }),
-      subscribeSalonCollection<HairFormula>(SALON_COLLECTIONS.formulas, (items) => {
-        setFormulas(items);
         done();
       }),
       subscribeSalonCollection<LoyaltyReward>(SALON_COLLECTIONS.loyaltyRewards, (items) => {
         setLoyaltyRewards(items);
         done();
       }),
-      subscribeSalonCollection<GiftCard>(SALON_COLLECTIONS.giftCards, (items) => {
-        setGiftCards(items);
-        done();
-      }),
-      subscribeSalonCollection<AppNotification>(SALON_COLLECTIONS.notifications, (items) => {
-        setNotifications(
-          items.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
-        );
-        done();
-      }),
+      subscribeSalonCollection<GiftCard>(
+        SALON_COLLECTIONS.giftCards,
+        (items) => {
+          setGiftCards(items);
+          done();
+        },
+        undefined,
+        giftCardConstraintsForRole(actor.role, actor.uid)
+      ),
+      subscribeSalonCollection<AppNotification>(
+        SALON_COLLECTIONS.notifications,
+        (items) => {
+          setNotifications(
+            items.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+          );
+          done();
+        },
+        undefined,
+        notificationConstraintsForRole(actor.role)
+      ),
     ];
 
-    // Safety: stop loading spinner even if a listener is slow
+    if (isStaff) {
+      unsubs.push(
+        subscribeSalonCollection<InventoryItem>(SALON_COLLECTIONS.inventory, (items) => {
+          setInventory(items);
+          done();
+        }),
+        subscribeSalonCollection<HairFormula>(SALON_COLLECTIONS.formulas, (items) => {
+          setFormulas(items);
+          done();
+        })
+      );
+    } else {
+      setInventory([]);
+      setFormulas([]);
+    }
+
     const t = window.setTimeout(() => setDataLoading(false), 4000);
 
     return () => {
       window.clearTimeout(t);
       unsubs.forEach((u) => u());
     };
-  }, [enabled]);
+  }, [actor?.uid, actor?.role, actor?.status]);
 
   const save = useCallback(
     async (collectionName: keyof typeof SALON_COLLECTIONS, id: string, data: Record<string, unknown>) => {
@@ -131,19 +172,16 @@ export function useSalonStore(enabled: boolean) {
     []
   );
 
-  const remove = useCallback(
-    async (collectionName: keyof typeof SALON_COLLECTIONS, id: string) => {
-      setWriteError(null);
-      try {
-        await deleteSalonDoc(SALON_COLLECTIONS[collectionName], id);
-      } catch (err: any) {
-        const msg = err?.message || 'Failed to delete from Firestore.';
-        setWriteError(msg);
-        throw new Error(msg);
-      }
-    },
-    []
-  );
+  const remove = useCallback(async (collectionName: keyof typeof SALON_COLLECTIONS, id: string) => {
+    setWriteError(null);
+    try {
+      await deleteSalonDoc(SALON_COLLECTIONS[collectionName], id);
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete from Firestore.';
+      setWriteError(msg);
+      throw new Error(msg);
+    }
+  }, []);
 
   return {
     services,

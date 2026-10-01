@@ -56,6 +56,11 @@ import { AccountPendingView } from './components/auth/AccountPendingView';
 import { StaffApprovalManager } from './components/owner/StaffApprovalManager';
 import { useSalonStore } from './hooks/useSalonStore';
 import { computeMetricsFromAppointments, EMPTY_METRICS } from './lib/salonStore';
+import {
+  canAccessPortal,
+  defaultViewForPortal,
+  isViewAllowedForPortal,
+} from './lib/roles';
 
 function SalonAppContent() {
   const {
@@ -77,14 +82,26 @@ function SalonAppContent() {
   const [showServicesManager, setShowServicesManager] = useState(false);
 
   const actualUserRole = userProfile?.role || 'customer';
-  const effectiveRole =
-    actualUserRole === 'customer'
-      ? 'customer'
-      : actualUserRole === 'stylist' && currentRole === 'owner'
-        ? 'stylist'
-        : currentRole;
+  // Portal access is derived from Firestore role/status — never trust UI state alone.
+  const effectiveRole: UserRole = canAccessPortal(
+    userProfile?.role,
+    userProfile?.status,
+    currentRole
+  )
+    ? currentRole
+    : actualUserRole === 'owner' || actualUserRole === 'stylist' || actualUserRole === 'customer'
+      ? actualUserRole
+      : 'customer';
 
-  const salon = useSalonStore(Boolean(firebaseUser && userProfile));
+  const salon = useSalonStore(
+    firebaseUser && userProfile && userProfile.status !== 'disabled'
+      ? {
+          uid: userProfile.uid || userProfile.id,
+          role: userProfile.role,
+          status: userProfile.status,
+        }
+      : null
+  );
   const {
     services,
     stylists,
@@ -110,18 +127,20 @@ function SalonAppContent() {
   );
 
   React.useEffect(() => {
-    if (userProfile?.role) {
-      setCurrentRole(userProfile.role);
-      if (userProfile.role === 'customer') setCurrentView('home');
-      else if (userProfile.role === 'stylist') setCurrentView('stylist_schedule');
-      else if (userProfile.role === 'owner') setCurrentView('owner_dashboard');
+    if (!userProfile?.role || userProfile.status !== 'active') return;
+    const portal = userProfile.role;
+    setCurrentRole(portal);
+    setCurrentView(defaultViewForPortal(portal));
+  }, [userProfile?.role, userProfile?.status]);
+
+  React.useEffect(() => {
+    if (!isViewAllowedForPortal(effectiveRole, currentView)) {
+      setCurrentView(defaultViewForPortal(effectiveRole));
     }
-  }, [userProfile?.role]);
+  }, [effectiveRole, currentView]);
 
   const handleReturn = () => {
-    if (effectiveRole === 'customer') setCurrentView('home');
-    else if (effectiveRole === 'stylist') setCurrentView('stylist_schedule');
-    else if (effectiveRole === 'owner') setCurrentView('owner_dashboard');
+    setCurrentView(defaultViewForPortal(effectiveRole));
   };
 
   const isSecondaryView =
@@ -230,50 +249,55 @@ function SalonAppContent() {
   };
 
   const handleRoleChange = (requestedRole: UserRole) => {
-    if (actualUserRole === 'customer') {
-      setCurrentRole('customer');
-      setCurrentView('home');
-      return;
-    }
-    if (actualUserRole === 'stylist' && requestedRole === 'owner') {
-      setCurrentRole('stylist');
-      setCurrentView('stylist_schedule');
+    if (!canAccessPortal(userProfile?.role, userProfile?.status, requestedRole)) {
+      const fallback = userProfile?.role || 'customer';
+      setCurrentRole(fallback);
+      setCurrentView(defaultViewForPortal(fallback));
       return;
     }
     setCurrentRole(requestedRole);
-    if (requestedRole === 'customer') setCurrentView('home');
-    if (requestedRole === 'stylist') setCurrentView('stylist_schedule');
-    if (requestedRole === 'owner') setCurrentView('owner_dashboard');
+    setCurrentView(defaultViewForPortal(requestedRole));
   };
 
   const handleBookingComplete = async (newApt: Appointment) => {
     try {
-      await save('appointments', newApt.id, { ...newApt });
+      const uid = userProfile?.uid || userProfile?.id;
+      const aptToSave: Appointment =
+        userProfile?.role === 'customer' && uid
+          ? {
+              ...newApt,
+              customerId: uid,
+              customerName: userProfile.name,
+            }
+          : newApt;
+      await save('appointments', aptToSave.id, { ...aptToSave });
       if (userProfile?.role === 'customer' && userProfile.uid) {
-        const pts = (userProfile.loyaltyPoints || 0) + Math.round(newApt.price || 0);
+        const pts = (userProfile.loyaltyPoints || 0) + Math.round(aptToSave.price || 0);
         await updateOwnProfile({ loyaltyPoints: pts });
       }
       if (effectiveRole === 'customer') setCurrentView('appointments');
       await addNotification({
         title: 'Appointment Confirmed',
-        message: `${newApt.serviceName} with ${newApt.stylistName} is set for ${newApt.date} at ${newApt.time}.`,
+        message: `${aptToSave.serviceName} with ${aptToSave.stylistName} is set for ${aptToSave.date} at ${aptToSave.time}.`,
         type: 'booking_confirmation',
         targetRole: 'customer',
       });
       await addNotification({
         title: 'New Booking Assigned',
-        message: `${newApt.customerName} booked ${newApt.serviceName} on ${newApt.date} at ${newApt.time}.`,
+        message: `${aptToSave.customerName} booked ${aptToSave.serviceName} on ${aptToSave.date} at ${aptToSave.time}.`,
         type: 'new_booking',
         targetRole: 'stylist',
       });
       await addNotification({
         title: 'New Client Appointment Booked',
-        message: `${newApt.customerName} booked ${newApt.serviceName} with ${newApt.stylistName}.`,
+        message: `${aptToSave.customerName} booked ${aptToSave.serviceName} with ${aptToSave.stylistName}.`,
         type: 'general',
         targetRole: 'owner',
       });
     } catch (err: any) {
-      alert(err.message || 'Failed to save appointment.');
+      const msg = err.message || 'Failed to save appointment. Please try again or pick another time.';
+      alert(msg);
+      throw err;
     }
   };
 
@@ -516,6 +540,7 @@ function SalonAppContent() {
   };
 
   const handleBuyGiftCard = async (amount: number, recipient: string) => {
+    const uid = currentUserProfile.uid || currentUserProfile.id;
     const newGc: GiftCard = {
       id: newId('gc'),
       code: `TL-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -525,6 +550,7 @@ function SalonAppContent() {
       recipientEmail: '',
       senderName: currentUserProfile.name,
       purchaseDate: new Date().toISOString().split('T')[0],
+      createdByUid: uid,
     };
     try {
       await save('giftCards', newGc.id, { ...newGc });
@@ -687,8 +713,7 @@ function SalonAppContent() {
                 appointments={appointments.filter(
                   (a) =>
                     a.customerId === currentUserProfile.uid ||
-                    a.customerId === currentUserProfile.id ||
-                    a.customerName === currentUserProfile.name
+                    a.customerId === currentUserProfile.id
                 )}
                 onBookNew={() => {
                   setBookingCategory(undefined);

@@ -197,7 +197,7 @@ export const WelcomeAuthView: React.FC = () => {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     required={mode === 'register_customer'}
-                    placeholder="e.g. Jasmine Taylor"
+                    placeholder="Your full name"
                     className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                   />
                 </div>
@@ -213,7 +213,7 @@ export const WelcomeAuthView: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder={mode === 'staff_login' ? 'carolyn.owner@truelengths.com' : 'jasmine@example.com'}
+                  placeholder={mode === 'staff_login' ? 'you@example.com' : 'you@example.com'}
                   className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                 />
               </div>

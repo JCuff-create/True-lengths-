@@ -1149,7 +1149,7 @@ export const OwnerCalendar: React.FC<OwnerCalendarProps> = ({
                   required
                   value={newAptForm.customerName}
                   onChange={(e) => setNewAptForm({ ...newAptForm, customerName: e.target.value })}
-                  placeholder="e.g. Jasmine Roberts"
+                  placeholder="Client full name"
                   className="w-full h-11 bg-[#3D3D3D] text-[#FAF8F5] text-xs px-3.5 rounded-xl border border-[#B68A4C]/30 focus:outline-none focus:border-[#B68A4C] box-border"
                 />
               </div>

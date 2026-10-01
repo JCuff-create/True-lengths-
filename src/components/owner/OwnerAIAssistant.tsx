@@ -116,7 +116,7 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
       const fallbackMsg: ChatMessage = {
         id: `oa-${Date.now()}`,
         sender: 'assistant',
-        text: "Executive Advisor Telemetry: Today's revenue projected at $1,280 across 5 appointments. Carolyn R. leads in Silk Press volume.",
+        text: "I could not reach the business advisor right now. Please try again in a moment. Live metrics shown above still reflect your Firestore data.",
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         actionablePrompts: getFallbackSuggestions(text),
       };
@@ -149,7 +149,7 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
               {
                 id: `om-${Date.now()}`,
                 sender: 'assistant',
-                text: "Conversation reset. Good morning Carolyn, how can I assist your business growth today?",
+                text: "Conversation reset. Ask a question using your live Firestore metrics.",
                 timestamp: 'Just now',
                 actionablePrompts: [
                   "Who hasn't returned in 8 weeks?",
