@@ -59,7 +59,7 @@ ALWAYS end your response with 3 logical, interactive follow-up questions tailore
 SUGGESTED_FOLLOWUPS: ["Question 1", "Question 2", "Question 3"]`;
 
     const response = await aiClient.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: prompt,
       config: {
         systemInstruction,
@@ -137,7 +137,7 @@ Format them at the very end of your output after a blank line as:
 SUGGESTED_FOLLOWUPS: ["Follow-up option 1", "Follow-up option 2", "Follow-up option 3"]`;
 
     const response = await aiClient.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: prompt,
       config: {
         systemInstruction,
