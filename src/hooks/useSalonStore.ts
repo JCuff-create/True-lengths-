@@ -92,7 +92,10 @@ export function useSalonStore(actor: SalonActor | null) {
         done();
       }),
       subscribeSalonCollection<Stylist>(SALON_COLLECTIONS.stylists, (items) => {
-        setStylists(items);
+        // Legacy stylist records without this field remain active. Deactivated
+        // records stay in Firestore for possible restoration but never appear
+        // in customer booking or operational selectors.
+        setStylists(items.filter((stylist) => stylist.active !== false));
         done();
       }),
       subscribeSalonCollection<Appointment>(
