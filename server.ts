@@ -10,6 +10,7 @@ import firebaseConfigJson from './firebase-applet-config.json';
 const app = express();
 // Cloud Run injects PORT (typically 8080). Local / AI Studio default to 3000.
 const PORT = Number(process.env.PORT) || 3000;
+const DEFAULT_SALON_ID = 'truelengths-main';
 
 app.use(express.json());
 
@@ -55,7 +56,12 @@ app.post('/api/admin/stylists/permanent-remove', async (req, res) => {
     if (!targetSnapshot.exists || target?.role !== 'stylist') {
       return res.status(404).json({ error: 'Stylist profile not found.' });
     }
-    if (target.salonId !== owner.salonId) {
+    // Profiles created before salon IDs were required belong to the original
+    // True Lengths tenant. Normalize only missing legacy values; an explicit
+    // different salon ID must still be rejected.
+    const ownerSalonId = String(owner.salonId || DEFAULT_SALON_ID).trim();
+    const targetSalonId = String(target.salonId || DEFAULT_SALON_ID).trim();
+    if (targetSalonId !== ownerSalonId) {
       return res.status(403).json({ error: 'This stylist belongs to a different salon.' });
     }
     if (confirmationEmail !== String(target.email || '').trim().toLowerCase()) {
