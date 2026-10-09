@@ -54,6 +54,14 @@ async function seed() {
       status: 'pending',
       salonId: 'truelengths-main',
     });
+    await setDoc(doc(db, 'users/removable1'), {
+      uid: 'removable1',
+      email: 'remove@example.com',
+      name: 'Removable Stylist',
+      role: 'stylist',
+      status: 'active',
+      salonId: 'truelengths-main',
+    });
     await setDoc(doc(db, 'users/customer1'), {
       uid: 'customer1',
       email: 'customer@example.com',
@@ -87,6 +95,12 @@ async function seed() {
       id: 'stylist1',
       name: 'Stylist',
       commissionRate: 0.5,
+    });
+    await setDoc(doc(db, 'stylists/removable1'), {
+      id: 'removable1',
+      name: 'Removable Stylist',
+      commissionRate: 0.5,
+      active: true,
     });
     await setDoc(doc(db, 'loyaltyRewards/r1'), {
       id: 'r1',
@@ -487,6 +501,30 @@ async function main() {
   });
   await check('owner can approve stylist', async () => {
     await assertSucceeds(updateDoc(doc(owner(), 'users/pending1'), { status: 'active' }));
+  });
+  await check('owner can disable stylist and hide booking directory record', async () => {
+    const db = owner();
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users/stylist1'), { status: 'disabled' });
+    batch.update(doc(db, 'stylists/stylist1'), { active: false });
+    await assertSucceeds(batch.commit());
+  });
+  await check('disabled stylist loses operational access', async () => {
+    await assertFails(getDoc(doc(stylist(), 'appointments/apt1')));
+  });
+  await check('owner can reactivate stylist and booking directory record', async () => {
+    const db = owner();
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users/stylist1'), { status: 'active' });
+    batch.update(doc(db, 'stylists/stylist1'), { active: true });
+    await assertSucceeds(batch.commit());
+  });
+  await check('owner can permanently remove stylist Firestore profiles', async () => {
+    const db = owner();
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users/removable1'));
+    batch.delete(doc(db, 'stylists/removable1'));
+    await assertSucceeds(batch.commit());
   });
   await check('owner can manage services', async () => {
     await assertSucceeds(updateDoc(doc(owner(), 'services/svc1'), { price: 80 }));

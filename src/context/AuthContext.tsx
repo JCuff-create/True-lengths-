@@ -47,6 +47,9 @@ interface AuthContextType {
   signOutUser: () => Promise<void>;
   approveStaffAccount: (staffUid: string) => Promise<void>;
   disableUserAccount: (targetUid: string) => Promise<void>;
+  disableStylistAccount: (targetUid: string) => Promise<void>;
+  reactivateStylistAccount: (targetUid: string) => Promise<void>;
+  permanentlyRemoveStylist: (targetUid: string, confirmationEmail: string) => Promise<void>;
   createStaffInvite: (data: { name: string; email: string; phone?: string }) => Promise<StaffInvite>;
   revokeStaffInvite: (inviteId: string) => Promise<void>;
   updateOwnProfile: (incoming: Partial<UserProfile>) => Promise<UserProfile>;
@@ -424,6 +427,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       specialties: [],
       commissionRate: 0.5,
       salonId: staff.salonId || DEFAULT_SALON_ID,
+      active: true,
       updatedAt: serverTimestamp(),
     }, { merge: true });
     await batch.commit();
@@ -480,6 +484,87 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const requireOwner = () => {
+    if (!userProfile || userProfile.role !== 'owner' || userProfile.status !== 'active') {
+      throw new Error('Unauthorized: Only the salon owner can manage stylist access.');
+    }
+  };
+
+  const getStylistProfile = (targetUid: string) => {
+    const stylist = allProfiles.find(
+      (profile) => (profile.uid === targetUid || profile.id === targetUid) && profile.role === 'stylist'
+    );
+    if (!stylist) throw new Error('Stylist profile not found.');
+    return stylist;
+  };
+
+  const disableStylistAccount = async (targetUid: string) => {
+    requireOwner();
+    getStylistProfile(targetUid);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', targetUid), {
+      status: 'disabled',
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(db, 'stylists', targetUid), {
+      active: false,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await batch.commit();
+  };
+
+  const reactivateStylistAccount = async (targetUid: string) => {
+    requireOwner();
+    const stylist = getStylistProfile(targetUid);
+    const directoryRef = doc(db, 'stylists', targetUid);
+    const directorySnapshot = await getDoc(directoryRef);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', targetUid), {
+      status: 'active',
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(directoryRef, {
+      id: targetUid,
+      name: stylist.name,
+      avatar: stylist.avatar || '',
+      salonId: stylist.salonId || DEFAULT_SALON_ID,
+      active: true,
+      ...(!directorySnapshot.exists() ? {
+        roleTitle: 'Stylist',
+        bio: 'True Lengths salon stylist',
+        rating: 5,
+        totalReviews: 0,
+        specialties: [],
+        commissionRate: 0.5,
+      } : {}),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await batch.commit();
+  };
+
+  const permanentlyRemoveStylist = async (targetUid: string, confirmationEmail: string) => {
+    requireOwner();
+    const stylist = getStylistProfile(targetUid);
+    if (confirmationEmail.trim().toLowerCase() !== stylist.email.trim().toLowerCase()) {
+      throw new Error('The confirmation email does not match this stylist.');
+    }
+    if (!firebaseUser) throw new Error('Your owner session has expired. Please sign in again.');
+
+    const token = await firebaseUser.getIdToken();
+    const response = await fetch('/api/admin/stylists/permanent-remove', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ targetUid, confirmationEmail }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || 'Unable to permanently remove the stylist.');
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -494,6 +579,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOutUser,
         approveStaffAccount,
         disableUserAccount,
+        disableStylistAccount,
+        reactivateStylistAccount,
+        permanentlyRemoveStylist,
         createStaffInvite,
         revokeStaffInvite,
         updateOwnProfile,

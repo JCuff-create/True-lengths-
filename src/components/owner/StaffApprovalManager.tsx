@@ -15,7 +15,9 @@ import {
   Copy,
   Ban,
   Mail,
-  Phone
+  Phone,
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 
 interface StaffApprovalManagerProps {
@@ -30,6 +32,9 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
     staffInvites,
     approveStaffAccount,
     disableUserAccount,
+    disableStylistAccount,
+    reactivateStylistAccount,
+    permanentlyRemoveStylist,
     createStaffInvite,
     revokeStaffInvite
   } = useAuth();
@@ -41,6 +46,7 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
   const [invitePhone, setInvitePhone] = useState('');
   const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null);
   const [isCreatingInvite, setIsCreatingInvite] = useState(false);
+  const [staffActionUid, setStaffActionUid] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -66,6 +72,55 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
       } catch (err: any) {
         alert(err.message);
       }
+    }
+  };
+
+  const handleDisableStylist = async (uid: string, name: string) => {
+    if (!confirm(`Disable staff access for ${name}? They will be removed from booking but their history will be preserved.`)) return;
+    setStaffActionUid(uid);
+    try {
+      await disableStylistAccount(uid);
+      showToast(`${name} has been disabled and removed from booking.`);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setStaffActionUid(null);
+    }
+  };
+
+  const handleReactivateStylist = async (uid: string, name: string) => {
+    if (!confirm(`Reactivate ${name} as a stylist?`)) return;
+    setStaffActionUid(uid);
+    try {
+      await reactivateStylistAccount(uid);
+      showToast(`${name} has been reactivated.`);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setStaffActionUid(null);
+    }
+  };
+
+  const handlePermanentRemoval = async (uid: string, name: string, email: string) => {
+    const acknowledged = confirm(
+      `Permanently remove ${name}? This deletes their Firebase login and staff profiles. Past appointments remain for salon records. This cannot be undone.`
+    );
+    if (!acknowledged) return;
+    const typedEmail = window.prompt(`Type the stylist email to confirm permanent removal:\n${email}`);
+    if (typedEmail === null) return;
+    if (typedEmail.trim().toLowerCase() !== email.trim().toLowerCase()) {
+      alert('Permanent removal canceled because the email did not match.');
+      return;
+    }
+
+    setStaffActionUid(uid);
+    try {
+      await permanentlyRemoveStylist(uid, typedEmail);
+      showToast(`${name} was permanently removed. Appointment history was preserved.`);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setStaffActionUid(null);
     }
   };
 
@@ -119,6 +174,7 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
   };
 
   const activeStaff = allProfiles.filter((p) => p.role === 'stylist' && p.status === 'active');
+  const disabledStaff = allProfiles.filter((p) => p.role === 'stylist' && p.status === 'disabled');
   const activeCustomers = allProfiles.filter((p) => p.role === 'customer');
 
   return (
@@ -350,26 +406,88 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
               {activeStaff.map((st) => (
                 <div
                   key={st.id}
-                  className="p-3.5 rounded-2xl bg-[#F4F1EC] border border-[#B68A4C]/20 flex items-center justify-between"
+                  className="p-3.5 rounded-2xl bg-[#F4F1EC] border border-[#B68A4C]/20 space-y-3"
                 >
-                  <div className="flex items-center space-x-2.5">
-                    <div className="w-9 h-9 rounded-full overflow-hidden border border-[#B68A4C] bg-[#2D2D2D] text-white flex items-center justify-center font-bold text-xs shrink-0">
-                      <img src={st.avatar} alt={st.name} className="w-full h-full object-cover" />
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-full overflow-hidden border border-[#B68A4C] bg-[#2D2D2D] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                        {st.avatar ? <img src={st.avatar} alt={st.name} className="w-full h-full object-cover" /> : st.name.charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <h5 className="font-serif font-bold text-xs text-[#2D2D2D]">{st.name}</h5>
+                        <p className="text-[10px] text-[#8B5E34] truncate">{st.email}</p>
+                      </div>
                     </div>
-                    <div>
-                      <h5 className="font-serif font-bold text-xs text-[#2D2D2D]">{st.name}</h5>
-                      <p className="text-[10px] text-[#8B5E34]">{st.email}</p>
-                    </div>
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-2 py-0.5 rounded-full">Approved</span>
                   </div>
-                  <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-2 py-0.5 rounded-full">
-                    Approved
-                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={staffActionUid === st.id}
+                      onClick={() => handleDisableStylist(st.id, st.name)}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                    >
+                      <Ban className="w-3 h-3" /> Disable
+                    </button>
+                    <button
+                      type="button"
+                      disabled={staffActionUid === st.id}
+                      onClick={() => handlePermanentRemoval(st.id, st.name, st.email)}
+                      className="px-2.5 py-1.5 rounded-lg bg-red-100 text-red-800 text-[10px] font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3 h-3" /> Permanently Remove
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* SECTION 3: REGISTERED CLIENTS OVERVIEW */}
+          {/* SECTION 3: DISABLED STYLISTS */}
+          {disabledStaff.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="font-serif font-bold text-[#2D2D2D] text-base flex items-center gap-2">
+                <UserX className="w-4 h-4 text-[#8B5E34]" />
+                Disabled Stylists ({disabledStaff.length})
+              </h3>
+              <p className="text-[11px] text-gray-500">
+                Disabled stylists cannot enter staff areas or receive new bookings. Their historical appointments remain available.
+              </p>
+              <div className="space-y-2">
+                {disabledStaff.map((st) => (
+                  <div key={st.id} className="p-3 rounded-xl bg-gray-100 border border-gray-200 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-[#2D2D2D]">{st.name}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{st.email}</p>
+                      </div>
+                      <span className="bg-gray-200 text-gray-700 text-[9px] font-bold px-2 py-0.5 rounded-full">Disabled</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={staffActionUid === st.id}
+                        onClick={() => handleReactivateStylist(st.id, st.name)}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-3 h-3" /> Reactivate
+                      </button>
+                      <button
+                        type="button"
+                        disabled={staffActionUid === st.id}
+                        onClick={() => handlePermanentRemoval(st.id, st.name, st.email)}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-100 text-red-800 text-[10px] font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3 h-3" /> Permanently Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 4: REGISTERED CLIENTS OVERVIEW */}
           <div className="space-y-3">
             <h3 className="font-serif font-bold text-[#2D2D2D] text-base flex items-center gap-2">
               <Users className="w-4 h-4 text-[#8B5E34]" />

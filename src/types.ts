@@ -55,6 +55,8 @@ export interface Stylist {
   totalReviews: number;
   specialties: string[];
   commissionRate: number; // e.g. 0.50 for 50%
+  /** Disabled stylists remain archived but are excluded from booking. */
+  active?: boolean;
 }
 
 export interface Appointment {
