@@ -11,7 +11,16 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  writeBatch,
+} from 'firebase/firestore';
 
 const PROJECT_ID = 'massive-ridge-298sv';
 const RULES_PATH = resolve(process.cwd(), 'firestore.rules');
@@ -125,6 +134,9 @@ async function seed() {
     });
     await setDoc(doc(db, 'staffInvites/invA'), {
       inviteId: 'invA',
+      email: 'invited@example.com',
+      name: 'Invited Stylist',
+      salonId: 'truelengths-main',
       role: 'stylist',
       status: 'pending',
     });
@@ -307,6 +319,60 @@ async function main() {
         role: 'owner',
         status: 'active',
         salonId: 'truelengths-main',
+      })
+    );
+  });
+
+  // ---- Stylist invitation registration ----
+  const invited = () => authedDb('invited1', 'invited@example.com');
+  await check('invited user can get only their matching pending invite', async () => {
+    await assertSucceeds(getDoc(doc(invited(), 'staffInvites/invA')));
+    await assertFails(getDoc(doc(authedDb('wrong1', 'wrong@example.com'), 'staffInvites/invA')));
+  });
+  await check('invited user cannot list staff invitations', async () => {
+    await assertFails(getDocs(collection(invited(), 'staffInvites')));
+  });
+  await check('invited user cannot alter protected invitation fields', async () => {
+    await assertFails(updateDoc(doc(invited(), 'staffInvites/invA'), { email: 'other@example.com' }));
+  });
+  await check('auth user cannot self-register as stylist without an invite', async () => {
+    await assertFails(
+      setDoc(doc(authedDb('noinvite1', 'noinvite@example.com'), 'users/noinvite1'), {
+        uid: 'noinvite1',
+        email: 'noinvite@example.com',
+        name: 'No Invite',
+        role: 'stylist',
+        status: 'pending',
+        salonId: 'truelengths-main',
+        inviteCode: 'DOES-NOT-EXIST',
+      })
+    );
+  });
+  await check('invited user can atomically consume invite and create pending stylist profile', async () => {
+    const db = invited();
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'staffInvites/invA'), {
+      status: 'used',
+      usedByUid: 'invited1',
+      updatedAt: 'now',
+    });
+    batch.set(doc(db, 'users/invited1'), {
+      uid: 'invited1',
+      email: 'invited@example.com',
+      name: 'Invited Stylist',
+      role: 'stylist',
+      status: 'pending',
+      salonId: 'truelengths-main',
+      inviteCode: 'invA',
+    });
+    await assertSucceeds(batch.commit());
+  });
+  await check('used invite cannot be read or reused by invitee', async () => {
+    await assertFails(getDoc(doc(invited(), 'staffInvites/invA')));
+    await assertFails(
+      updateDoc(doc(invited(), 'staffInvites/invA'), {
+        status: 'used',
+        usedByUid: 'invited1',
       })
     );
   });

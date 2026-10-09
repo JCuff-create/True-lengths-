@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { UserProfile } from '../../types';
 import {
   ShieldCheck,
   UserCheck,
@@ -9,10 +8,14 @@ import {
   Key,
   Check,
   Users,
-  AlertCircle,
   X,
   Sparkles,
-  Scissors
+  Scissors,
+  UserPlus,
+  Copy,
+  Ban,
+  Mail,
+  Phone
 } from 'lucide-react';
 
 interface StaffApprovalManagerProps {
@@ -22,14 +25,22 @@ interface StaffApprovalManagerProps {
 
 export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOpen, onClose }) => {
   const {
-    userProfile,
     pendingStaffList,
     allProfiles,
+    staffInvites,
     approveStaffAccount,
-    disableUserAccount
+    disableUserAccount,
+    createStaffInvite,
+    revokeStaffInvite
   } = useAuth();
 
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [showInviteForm, setShowInviteForm] = useState(false);
+  const [inviteName, setInviteName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [invitePhone, setInvitePhone] = useState('');
+  const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null);
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false);
 
   if (!isOpen) return null;
 
@@ -55,6 +66,55 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
       } catch (err: any) {
         alert(err.message);
       }
+    }
+  };
+
+  const invitationLink = (code: string) => {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('staffInvite', code);
+    return url.toString();
+  };
+
+  const handleCreateInvite = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIsCreatingInvite(true);
+    try {
+      const invite = await createStaffInvite({
+        name: inviteName,
+        email: inviteEmail,
+        phone: invitePhone,
+      });
+      setCreatedInviteCode(invite.inviteId);
+      setInviteName('');
+      setInviteEmail('');
+      setInvitePhone('');
+      showToast(`Invitation created for ${invite.name}.`);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsCreatingInvite(false);
+    }
+  };
+
+  const copyInvitation = async (code: string) => {
+    const message = `You have been invited to join True Lengths as a stylist. Register here: ${invitationLink(code)}\nInvitation code: ${code}`;
+    try {
+      await navigator.clipboard.writeText(message);
+      showToast('Stylist invitation copied.');
+    } catch {
+      window.prompt('Copy this stylist invitation:', message);
+    }
+  };
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    if (!confirm('Revoke this stylist invitation? It will no longer work.')) return;
+    try {
+      await revokeStaffInvite(inviteId);
+      showToast('Stylist invitation revoked.');
+    } catch (err: any) {
+      alert(err.message);
     }
   };
 
@@ -99,15 +159,122 @@ export const StaffApprovalManager: React.FC<StaffApprovalManagerProps> = ({ isOp
           
           {/* Staff onboarding note */}
           <div className="bg-gradient-to-r from-[#2D2D2D] to-[#3A332C] p-4 rounded-2xl border border-[#B68A4C]/40 text-[#FAF8F5]">
-            <div className="space-y-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
               <span className="text-[10px] uppercase tracking-widest text-[#B68A4C] font-bold flex items-center gap-1">
                 <Key className="w-3 h-3" /> Staff Onboarding
               </span>
               <p className="text-xs text-gray-300 leading-relaxed">
-                New stylists register with a staff account and remain <strong className="text-white">pending</strong> until you approve them here. Approvals are written to Firestore and take effect immediately.
+                Invite each stylist here. They register with the one-time code and remain <strong className="text-white">pending</strong> until you approve them.
               </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowInviteForm((visible) => !visible)}
+                className="shrink-0 px-4 py-2 rounded-xl bg-[#B68A4C] hover:bg-[#8B5E34] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+              >
+                <UserPlus className="w-4 h-4" /> Add Stylist
+              </button>
             </div>
           </div>
+
+          {showInviteForm && (
+            <div className="bg-white border border-[#B68A4C]/30 rounded-2xl p-4 space-y-4 shadow-xs">
+              <div>
+                <h3 className="font-serif font-bold text-[#2D2D2D]">Invite a Stylist</h3>
+                <p className="text-[11px] text-gray-500">Enter the exact email the stylist will use to register.</p>
+              </div>
+              <form onSubmit={handleCreateInvite} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="text-xs font-semibold text-[#2D2D2D]">
+                  Full Name
+                  <input
+                    value={inviteName}
+                    onChange={(event) => setInviteName(event.target.value)}
+                    required
+                    className="mt-1 w-full px-3 py-2 border border-[#B68A4C]/30 rounded-xl font-normal focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
+                    placeholder="Stylist full name"
+                  />
+                </label>
+                <label className="text-xs font-semibold text-[#2D2D2D]">
+                  Email
+                  <div className="relative mt-1">
+                    <Mail className="w-4 h-4 absolute left-3 top-2.5 text-[#8B5E34]" />
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(event) => setInviteEmail(event.target.value)}
+                      required
+                      className="w-full pl-9 pr-3 py-2 border border-[#B68A4C]/30 rounded-xl font-normal focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
+                      placeholder="stylist@example.com"
+                    />
+                  </div>
+                </label>
+                <label className="text-xs font-semibold text-[#2D2D2D] sm:col-span-2">
+                  Phone (Optional)
+                  <div className="relative mt-1">
+                    <Phone className="w-4 h-4 absolute left-3 top-2.5 text-[#8B5E34]" />
+                    <input
+                      type="tel"
+                      value={invitePhone}
+                      onChange={(event) => setInvitePhone(event.target.value)}
+                      className="w-full pl-9 pr-3 py-2 border border-[#B68A4C]/30 rounded-xl font-normal focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
+                      placeholder="(555) 234-5678"
+                    />
+                  </div>
+                </label>
+                <button
+                  type="submit"
+                  disabled={isCreatingInvite}
+                  className="sm:col-span-2 py-2.5 rounded-xl bg-[#8B5E34] hover:bg-[#B68A4C] disabled:opacity-60 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  {isCreatingInvite ? 'Creating Invitation…' : 'Create Stylist Invitation'}
+                </button>
+              </form>
+
+              {createdInviteCode && (
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide font-bold text-emerald-800">Invitation ready</p>
+                    <p className="font-mono text-sm font-bold text-emerald-950">{createdInviteCode}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyInvitation(createdInviteCode)}
+                    className="px-3 py-2 rounded-lg bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Copy Invite & Link
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {staffInvites.some((invite) => invite.status === 'pending') && (
+            <div className="space-y-3">
+              <h3 className="font-serif font-bold text-[#2D2D2D] text-base flex items-center gap-2">
+                <Key className="w-4 h-4 text-[#8B5E34]" /> Pending Invitations
+              </h3>
+              <div className="space-y-2">
+                {staffInvites.filter((invite) => invite.status === 'pending').map((invite) => (
+                  <div key={invite.id} className="bg-white border border-[#B68A4C]/20 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-bold text-[#2D2D2D]">{invite.name}</p>
+                      <p className="text-[10px] text-gray-500">{invite.email} • <span className="font-mono">{invite.inviteId}</span></p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => copyInvitation(invite.inviteId)} className="px-2.5 py-1.5 rounded-lg bg-[#F4F1EC] text-[#8B5E34] text-[10px] font-bold flex items-center gap-1">
+                        <Copy className="w-3 h-3" /> Copy
+                      </button>
+                      <button type="button" onClick={() => handleRevokeInvite(invite.id)} className="px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 text-[10px] font-bold flex items-center gap-1">
+                        <Ban className="w-3 h-3" /> Revoke
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* SECTION 1: PENDING STYLIST REQUESTS */}
           <div className="space-y-3">

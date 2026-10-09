@@ -10,6 +10,7 @@ interface OwnerDashboardProps {
   onOpenOwnerAI: () => void;
   onOpenPortfolio?: () => void;
   onOpenServices?: () => void;
+  onOpenStaffManagement: () => void;
 }
 
 export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
@@ -20,6 +21,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   onOpenOwnerAI,
   onOpenPortfolio,
   onOpenServices,
+  onOpenStaffManagement,
 }) => {
   const [timeframe, setTimeframe] = useState<string>('This Month');
   const hasData = metrics.totalAppointments > 0 || metrics.topServices.length > 0;
@@ -130,6 +132,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           </div>
 
           <div className="space-y-2 pt-2">
+            <button
+              onClick={onOpenStaffManagement}
+              className="w-full bg-[#FAF8F5] hover:bg-white text-[#2D2D2D] font-bold py-3 rounded-xl text-xs transition-all shadow-xs cursor-pointer"
+            >
+              Add Stylist & Manage Staff Access
+            </button>
             {onOpenServices && (
               <button
                 onClick={onOpenServices}

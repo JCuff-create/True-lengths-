@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   User,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  deleteUser,
 } from 'firebase/auth';
 import {
   doc,
@@ -16,9 +17,10 @@ import {
   query,
   where,
   serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import { UserProfile, UserRole, UserStatus } from '../types';
+import { StaffInvite, UserProfile, UserRole, UserStatus } from '../types';
 import { DEFAULT_SALON_ID, clearLegacyLocalDemoData } from '../lib/salonStore';
 
 interface AuthContextType {
@@ -45,9 +47,12 @@ interface AuthContextType {
   signOutUser: () => Promise<void>;
   approveStaffAccount: (staffUid: string) => Promise<void>;
   disableUserAccount: (targetUid: string) => Promise<void>;
+  createStaffInvite: (data: { name: string; email: string; phone?: string }) => Promise<StaffInvite>;
+  revokeStaffInvite: (inviteId: string) => Promise<void>;
   updateOwnProfile: (incoming: Partial<UserProfile>) => Promise<UserProfile>;
   pendingStaffList: UserProfile[];
   allProfiles: UserProfile[];
+  staffInvites: StaffInvite[];
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -70,6 +75,7 @@ function mapUserDoc(uid: string, email: string, data: Record<string, unknown>): 
     loyaltyTier: (data.loyaltyTier as UserProfile['loyaltyTier']) || undefined,
     memberSince: (data.memberSince as string) || '',
     notes: (data.notes as string) || '',
+    inviteCode: (data.inviteCode as string) || undefined,
   };
 }
 
@@ -80,6 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authError, setAuthError] = useState<string | null>(null);
   const [pendingStaffList, setPendingStaffList] = useState<UserProfile[]>([]);
   const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
+  const [staffInvites, setStaffInvites] = useState<StaffInvite[]>([]);
+  const provisioningRef = useRef(false);
 
   const clearError = () => setAuthError(null);
 
@@ -109,7 +117,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         if (user) {
           setFirebaseUser(user);
-          await fetchUserProfile(user.uid, user.email || '');
+          if (!provisioningRef.current) {
+            await fetchUserProfile(user.uid, user.email || '');
+          }
         } else {
           setFirebaseUser(null);
           setUserProfile(null);
@@ -167,6 +177,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, [userProfile?.role, userProfile?.uid, userProfile?.status]);
 
+  useEffect(() => {
+    if (!userProfile || userProfile.role !== 'owner' || userProfile.status !== 'active') {
+      setStaffInvites([]);
+      return;
+    }
+
+    return onSnapshot(
+      collection(db, 'staffInvites'),
+      (snapshot) => {
+        setStaffInvites(
+          snapshot.docs.map((inviteDoc) => ({
+            id: inviteDoc.id,
+            ...(inviteDoc.data() as Omit<StaffInvite, 'id'>),
+          }))
+        );
+      },
+      (err) => {
+        console.warn('Staff invitations listener:', err.message);
+        setStaffInvites([]);
+      }
+    );
+  }, [userProfile?.role, userProfile?.status]);
+
   const signIn = async (email: string, pass: string) => {
     setLoading(true);
     setAuthError(null);
@@ -195,6 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }) => {
     setLoading(true);
     setAuthError(null);
+    provisioningRef.current = true;
     try {
       const userCred = await createUserWithEmailAndPassword(auth, data.email, data.pass);
       const uid = userCred.user.uid;
@@ -232,6 +266,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
       throw new Error(cleanMsg);
     } finally {
+      provisioningRef.current = false;
       setLoading(false);
     }
   };
@@ -245,30 +280,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }) => {
     setLoading(true);
     setAuthError(null);
+    provisioningRef.current = true;
+    let createdUser: User | null = null;
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, data.email, data.pass);
+      const normalizedEmail = data.email.trim().toLowerCase();
+      const normalizedCode = data.inviteCode?.trim().toUpperCase();
+      if (!normalizedCode) throw new Error('A valid owner invitation code is required.');
+      if (!data.name.trim()) throw new Error('Enter your full name.');
+
+      const userCred = await createUserWithEmailAndPassword(auth, normalizedEmail, data.pass);
+      createdUser = userCred.user;
       const uid = userCred.user.uid;
+      const inviteRef = doc(db, 'staffInvites', normalizedCode);
+      const inviteSnap = await getDoc(inviteRef);
+      if (!inviteSnap.exists()) throw new Error('This invitation code is invalid or unavailable.');
+      const invite = inviteSnap.data() as Omit<StaffInvite, 'id'>;
+      if (invite.status !== 'pending' || invite.role !== 'stylist') {
+        throw new Error('This invitation has already been used or revoked.');
+      }
+      if (invite.email.trim().toLowerCase() !== normalizedEmail) {
+        throw new Error('Use the same email address that received this invitation.');
+      }
+
       const profileData: UserProfile = {
         id: uid,
         uid,
-        name: data.name,
-        email: data.email,
-        phone: data.phone || '',
+        name: invite.name || data.name.trim(),
+        email: normalizedEmail,
+        phone: invite.phone || data.phone || '',
         role: 'stylist',
         status: 'pending',
         salonId: DEFAULT_SALON_ID,
         avatar:
           'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80',
         memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        inviteCode: normalizedCode,
       };
-      await setDoc(doc(db, 'users', uid), {
+
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'users', uid), {
         ...profileData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      batch.update(inviteRef, {
+        status: 'used',
+        usedByUid: uid,
+        updatedAt: serverTimestamp(),
+      });
+      await batch.commit();
       setUserProfile(profileData);
       setFirebaseUser(userCred.user);
     } catch (err: any) {
+      if (createdUser) {
+        try {
+          await deleteUser(createdUser);
+        } catch (cleanupError) {
+          console.warn('Unable to remove incomplete staff account:', cleanupError);
+        }
+      }
       let cleanMsg = err.message;
       if (err.code === 'auth/email-already-in-use') cleanMsg = 'An account with this email already exists.';
       if (err.code === 'auth/operation-not-allowed') {
@@ -278,6 +348,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
       throw new Error(cleanMsg);
     } finally {
+      provisioningRef.current = false;
       setLoading(false);
     }
   };
@@ -333,9 +404,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!userProfile || userProfile.role !== 'owner' || userProfile.status !== 'active') {
       throw new Error('Unauthorized: Only the salon owner can approve staff accounts.');
     }
-    await updateDoc(doc(db, 'users', staffUid), {
+    const staff = allProfiles.find((profile) => profile.uid === staffUid || profile.id === staffUid);
+    if (!staff || staff.role !== 'stylist') throw new Error('Stylist profile not found.');
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', staffUid), {
       status: 'active',
       role: 'stylist',
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(db, 'stylists', staffUid), {
+      id: staffUid,
+      name: staff.name,
+      roleTitle: 'Stylist',
+      bio: 'True Lengths salon stylist',
+      avatar: staff.avatar || '',
+      rating: 5,
+      totalReviews: 0,
+      specialties: [],
+      commissionRate: 0.5,
+      salonId: staff.salonId || DEFAULT_SALON_ID,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await batch.commit();
+  };
+
+  const createStaffInvite = async (data: { name: string; email: string; phone?: string }) => {
+    if (!userProfile || userProfile.role !== 'owner' || userProfile.status !== 'active') {
+      throw new Error('Unauthorized: Only the salon owner can invite stylists.');
+    }
+    const normalizedEmail = data.email.trim().toLowerCase();
+    const name = data.name.trim();
+    if (!name || !normalizedEmail) throw new Error('Stylist name and email are required.');
+
+    const inviteId = `TL-${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+    const invite: StaffInvite = {
+      id: inviteId,
+      inviteId,
+      name,
+      email: normalizedEmail,
+      phone: data.phone?.trim() || '',
+      role: 'stylist',
+      salonId: DEFAULT_SALON_ID,
+      status: 'pending',
+    };
+    await setDoc(doc(db, 'staffInvites', inviteId), {
+      ...invite,
+      createdByUid: userProfile.uid || userProfile.id,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return invite;
+  };
+
+  const revokeStaffInvite = async (inviteId: string) => {
+    if (!userProfile || userProfile.role !== 'owner' || userProfile.status !== 'active') {
+      throw new Error('Unauthorized: Only the salon owner can revoke invitations.');
+    }
+    await updateDoc(doc(db, 'staffInvites', inviteId), {
+      status: 'revoked',
       updatedAt: serverTimestamp(),
     });
   };
@@ -367,9 +494,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOutUser,
         approveStaffAccount,
         disableUserAccount,
+        createStaffInvite,
+        revokeStaffInvite,
         updateOwnProfile,
         pendingStaffList,
         allProfiles,
+        staffInvites,
       }}
     >
       {children}
