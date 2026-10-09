@@ -16,6 +16,21 @@ export interface UserProfile {
   loyaltyTier?: 'Gold' | 'Platinum' | 'Diamond';
   memberSince?: string;
   notes?: string;
+  inviteCode?: string;
+}
+
+export type StaffInviteStatus = 'pending' | 'used' | 'revoked';
+
+export interface StaffInvite {
+  id: string;
+  inviteId: string;
+  email: string;
+  name: string;
+  phone?: string;
+  role: 'stylist';
+  salonId: string;
+  status: StaffInviteStatus;
+  usedByUid?: string;
 }
 
 export interface Service {

@@ -53,6 +53,34 @@ service cloud.firestore {
         && request.resource.data.salonId == resource.data.salonId;
     }
 
+    function validConsumedStaffInvite() {
+      let invite = getAfter(/databases/$(database)/documents/staffInvites/$(request.resource.data.inviteCode)).data;
+      return request.resource.data.inviteCode is string
+        && invite.inviteId == request.resource.data.inviteCode
+        && invite.role == 'stylist'
+        && invite.status == 'used'
+        && invite.usedByUid == request.auth.uid
+        && invite.email == request.auth.token.email
+        && request.resource.data.email == invite.email
+        && request.resource.data.salonId == invite.salonId;
+    }
+
+    function canReadPendingInvite() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && resource.data.role == 'stylist'
+        && resource.data.status == 'pending'
+        && resource.data.email == request.auth.token.email;
+    }
+
+    function canConsumePendingInvite() {
+      return canReadPendingInvite()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'usedByUid', 'updatedAt'])
+        && request.resource.data.status == 'used'
+        && request.resource.data.usedByUid == request.auth.uid;
+    }
+
     // Customers may only cancel (or leave status unchanged) — never reassign staff fields.
     function customerAppointmentUpdateSafe() {
       return request.resource.data.customerId == resource.data.customerId
@@ -84,7 +112,8 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid)
         || (request.resource.data.role == 'stylist'
           && request.resource.data.status == 'pending'
-          && request.resource.data.uid == request.auth.uid)
+          && request.resource.data.uid == request.auth.uid
+          && validConsumedStaffInvite())
       );
 
       allow update: if isActiveOwner()
@@ -190,10 +219,15 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // STAFF INVITES — owner only (never readable by customers/stylists)
+    // STAFF INVITES — owners create/revoke; an invited Auth user may only get
+    // and consume the exact pending invite matching their authenticated token email.
+    // Invitees cannot list invitations or change protected invitation fields.
     // ------------------------------------------------------------------
     match /staffInvites/{inviteId} {
-      allow read, write: if isActiveOwner();
+      allow get: if isActiveOwner() || canReadPendingInvite();
+      allow list: if isActiveOwner();
+      allow create, delete: if isActiveOwner();
+      allow update: if isActiveOwner() || canConsumePendingInvite();
     }
 
     // Default deny — no catch-all signed-in read/write

@@ -1,19 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { UserRole } from '../../types';
 import {
   Sparkles,
   Lock,
   Mail,
   User,
   Phone,
-  Scissors,
-  CheckCircle2,
   AlertCircle,
   KeyRound,
   ShieldCheck,
-  UserPlus,
-  Crown
 } from 'lucide-react';
 
 export const WelcomeAuthView: React.FC = () => {
@@ -27,6 +22,7 @@ export const WelcomeAuthView: React.FC = () => {
   } = useAuth();
 
   const [mode, setMode] = useState<'signin' | 'register_customer' | 'staff_login'>('signin');
+  const [staffAction, setStaffAction] = useState<'login' | 'register'>('login');
 
   // Form Fields
   const [email, setEmail] = useState('');
@@ -36,6 +32,15 @@ export const WelcomeAuthView: React.FC = () => {
   const [hairType, setHairType] = useState('4C - High Density Coily');
   const [inviteCode, setInviteCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('staffInvite');
+    if (code) {
+      setInviteCode(code.trim().toUpperCase());
+      setMode('staff_login');
+      setStaffAction('register');
+    }
+  }, []);
 
   const HAIR_TYPES = [
     '4C - High Density Coily',
@@ -65,22 +70,16 @@ export const WelcomeAuthView: React.FC = () => {
           hairType
         });
       } else if (mode === 'staff_login') {
-        // First try standard staff sign in, if fails with user-not-found then offer staff registration
-        try {
+        if (staffAction === 'login') {
           await signIn(email, password);
-        } catch (err: any) {
-          if (fullName.trim()) {
-            // Attempt staff sign up with invite code
-            await signUpStaff({
-              email,
-              pass: password,
-              name: fullName,
-              phone,
-              inviteCode
-            });
-          } else {
-            throw err;
-          }
+        } else {
+          await signUpStaff({
+            email,
+            pass: password,
+            name: fullName,
+            phone,
+            inviteCode
+          });
         }
       }
     } catch (err) {
@@ -163,7 +162,11 @@ export const WelcomeAuthView: React.FC = () => {
               <span>Create your customer account. (Receives 100 bonus loyalty points!)</span>
             )}
             {mode === 'staff_login' && (
-              <span>Stylist & Salon Owner Portal. Stylists must be approved by Owner Carolyn R.</span>
+              <span>
+                {staffAction === 'login'
+                  ? 'Stylist & Salon Owner Portal. Sign in with your existing staff account.'
+                  : 'Create a stylist account with the one-time invitation from the salon owner.'}
+              </span>
             )}
           </div>
 
@@ -187,7 +190,26 @@ export const WelcomeAuthView: React.FC = () => {
           {/* Auth Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {(mode === 'register_customer' || (mode === 'staff_login' && fullName !== '')) && (
+            {mode === 'staff_login' && (
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#F4F1EC] p-1 border border-[#B68A4C]/20">
+                <button
+                  type="button"
+                  onClick={() => { setStaffAction('login'); clearError(); }}
+                  className={`py-2 rounded-lg text-xs font-semibold transition-all ${staffAction === 'login' ? 'bg-white text-[#2D2D2D] shadow-sm' : 'text-gray-500'}`}
+                >
+                  Staff Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setStaffAction('register'); clearError(); }}
+                  className={`py-2 rounded-lg text-xs font-semibold transition-all ${staffAction === 'register' ? 'bg-[#2D2D2D] text-[#B68A4C] shadow-sm' : 'text-gray-500'}`}
+                >
+                  Register with Invite
+                </button>
+              </div>
+            )}
+
+            {(mode === 'register_customer' || (mode === 'staff_login' && staffAction === 'register')) && (
               <div>
                 <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">Full Name</label>
                 <div className="relative">
@@ -196,7 +218,7 @@ export const WelcomeAuthView: React.FC = () => {
                     type="text"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    required={mode === 'register_customer'}
+                    required={mode === 'register_customer' || staffAction === 'register'}
                     placeholder="Your full name"
                     className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                   />
@@ -234,7 +256,7 @@ export const WelcomeAuthView: React.FC = () => {
               </div>
             </div>
 
-            {mode === 'register_customer' && (
+            {(mode === 'register_customer' || (mode === 'staff_login' && staffAction === 'register')) && (
               <>
                 <div>
                   <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">Phone Number (Optional)</label>
@@ -250,7 +272,7 @@ export const WelcomeAuthView: React.FC = () => {
                   </div>
                 </div>
 
-                <div>
+                {mode === 'register_customer' && <div>
                   <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">Hair Type / Texture</label>
                   <select
                     value={hairType}
@@ -261,27 +283,28 @@ export const WelcomeAuthView: React.FC = () => {
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>
-                </div>
+                </div>}
               </>
             )}
 
-            {mode === 'staff_login' && (
+            {mode === 'staff_login' && staffAction === 'register' && (
               <div className="pt-1">
                 <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">
-                  Owner Staff VIP Invite Code (Optional)
+                  Owner Stylist Invitation Code
                 </label>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-[#B68A4C] absolute left-3 top-2.5" />
                   <input
                     type="text"
                     value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value)}
-                    placeholder="Owner invite code (optional)"
+                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                    placeholder="TL-XXXXXXXX"
+                    required
                     className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                   />
                 </div>
                 <p className="text-[10px] text-gray-500 mt-1">
-                  New staff accounts remain pending until the salon owner approves them.
+                  The code must match the email address invited by the owner. New accounts remain pending until approved.
                 </p>
               </div>
             )}
@@ -298,7 +321,7 @@ export const WelcomeAuthView: React.FC = () => {
                   <ShieldCheck className="w-4 h-4" />
                   {mode === 'signin' && 'Sign In'}
                   {mode === 'register_customer' && 'Create Customer Account'}
-                  {mode === 'staff_login' && 'Staff Sign In / Register'}
+                  {mode === 'staff_login' && (staffAction === 'login' ? 'Staff Sign In' : 'Create Stylist Account')}
                 </>
               )}
             </button>

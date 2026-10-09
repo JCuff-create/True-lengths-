@@ -781,6 +781,7 @@ function SalonAppContent() {
                 onOpenOwnerAI={() => setCurrentView('owner_ai')}
                 onOpenPortfolio={() => setCurrentView('portfolio')}
                 onOpenServices={() => setShowServicesManager(true)}
+                onOpenStaffManagement={() => setIsStaffApprovalOpen(true)}
               />
             )}
 
