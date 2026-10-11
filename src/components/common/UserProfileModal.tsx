@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserProfile } from '../../types';
-import { X, User, Edit3, Check, Camera, Sparkles, Phone, Mail, Award, Scissors } from 'lucide-react';
+import { X, User, Check, Camera, Sparkles, Mail, Award, LoaderCircle } from 'lucide-react';
+import { isValidAvatarUrl, uploadAvatar, validateAvatarFile } from '../../lib/avatarUpload';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -46,8 +47,29 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [editAvatar, setEditAvatar] = useState(currentUser.avatar || PRESET_AVATARS[0]);
   const [editHairType, setEditHairType] = useState(currentUser.hairType || '4C - High Density Coily');
   const [editNotes, setEditNotes] = useState(currentUser.notes || '');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setEditName(currentUser.name || '');
+    setEditEmail(currentUser.email || '');
+    setEditPhone(currentUser.phone || '');
+    setEditAvatar(currentUser.avatar || PRESET_AVATARS[0]);
+    setEditHairType(currentUser.hairType || '4C - High Density Coily');
+    setEditNotes(currentUser.notes || '');
+    setAvatarFile(null);
+    setAvatarPreview(null);
+  }, [isOpen, currentUser.id]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
 
   if (!isOpen) return null;
 
@@ -58,37 +80,55 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editName.trim()) return;
+    if (!editName.trim() || saving) return;
 
-    const updated: UserProfile = {
-      ...currentUser,
-      name: editName.trim(),
-      email: editEmail.trim(),
-      phone: editPhone.trim(),
-      avatar: editAvatar,
-      hairType: editHairType,
-      notes: editNotes.trim(),
-    };
+    if (!avatarFile && !isValidAvatarUrl(editAvatar.trim())) {
+      showToast('Enter a valid http:// or https:// avatar URL.');
+      return;
+    }
+
+    setSaving(true);
 
     try {
+      const avatar = avatarFile
+        ? await uploadAvatar(currentUser.uid || currentUser.id, avatarFile)
+        : editAvatar.trim();
+      const updated: UserProfile = {
+        ...currentUser,
+        name: editName.trim(),
+        email: editEmail.trim(),
+        phone: editPhone.trim(),
+        avatar,
+        hairType: editHairType,
+        notes: editNotes.trim(),
+      };
+
       await onUpdateProfile(updated);
+      setEditAvatar(avatar);
+      setAvatarFile(null);
+      setAvatarPreview(null);
       showToast('Profile saved to Firestore.');
-    } catch {
-      showToast('Failed to save profile. Changes were not kept.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save profile.';
+      showToast(message);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setEditAvatar(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+
+    const validationError = validateAvatarFile(file);
+    if (validationError) {
+      showToast(validationError);
+      return;
     }
+
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
   };
 
   return (
@@ -132,8 +172,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <div className="bg-[#F4F1EC] p-4 rounded-2xl border border-[#B68A4C]/20 flex flex-col sm:flex-row items-center gap-4">
                 <div className="relative group">
                   <div className="w-20 h-20 rounded-full border-2 border-[#B68A4C] overflow-hidden bg-[#2D2D2D] shadow-md flex items-center justify-center text-white font-bold text-2xl">
-                    {editAvatar ? (
-                      <img src={editAvatar} alt={editName} className="w-full h-full object-cover" />
+                    {avatarPreview || editAvatar ? (
+                      <img src={avatarPreview || editAvatar} alt={editName} className="w-full h-full object-cover" />
                     ) : (
                       editName.charAt(0) || 'C'
                     )}
@@ -170,7 +210,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     <button
                       key={i}
                       type="button"
-                      onClick={() => setEditAvatar(url)}
+                      onClick={() => {
+                        setAvatarFile(null);
+                        setAvatarPreview(null);
+                        setEditAvatar(url);
+                      }}
                       className={`w-10 h-10 rounded-full overflow-hidden border-2 transition-all cursor-pointer shrink-0 ${
                         editAvatar === url ? 'border-[#8B5E34] scale-110 shadow-sm' : 'border-transparent opacity-70 hover:opacity-100'
                       }`}
@@ -235,7 +279,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <input
                   type="url"
                   value={editAvatar}
-                  onChange={(e) => setEditAvatar(e.target.value)}
+                  onChange={(e) => {
+                    setAvatarFile(null);
+                    setAvatarPreview(null);
+                    setEditAvatar(e.target.value);
+                  }}
                   placeholder="https://..."
                   className="w-full px-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                 />
@@ -262,9 +310,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#8B5E34] to-[#B68A4C] text-[#FAF8F5] text-xs font-bold shadow-md hover:opacity-90 cursor-pointer flex items-center gap-1.5"
+                  disabled={saving}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#8B5E34] to-[#B68A4C] text-[#FAF8F5] text-xs font-bold shadow-md hover:opacity-90 cursor-pointer flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Check className="w-4 h-4" /> Save Profile Changes
+                  {saving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {saving ? 'Uploading & Saving...' : 'Save Profile Changes'}
                 </button>
               </div>
 
