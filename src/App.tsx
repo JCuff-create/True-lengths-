@@ -383,7 +383,7 @@ function SalonAppContent() {
         targetRole: 'stylist',
       });
     } catch (err: any) {
-      alert(err.message || 'Failed to save stylist profile.');
+      throw new Error(err.message || 'Failed to save stylist profile.');
     }
   };
 

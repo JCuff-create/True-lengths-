@@ -11,6 +11,7 @@
     "clean": "rm -rf dist server.cjs",
     "lint": "tsc --noEmit",
     "test:avatar": "node --import tsx --test tests/avatarUpload.test.ts",
+    "test:availability": "node --import tsx --test tests/stylistAvailability.test.ts",
     "test:rules": "firebase emulators:exec --only firestore --project massive-ridge-298sv \"node tests/firestore.rules.test.mjs\""
   },
   "dependencies": {

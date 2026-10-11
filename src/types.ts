@@ -45,6 +45,25 @@ export interface Service {
   popular?: boolean;
 }
 
+export type WeekdayKey =
+  | 'sunday'
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday';
+
+export interface WorkingHours {
+  enabled: boolean;
+  /** 24-hour local time, for example "09:00". */
+  start: string;
+  /** 24-hour local time, for example "17:00". */
+  end: string;
+}
+
+export type WeeklyAvailability = Record<WeekdayKey, WorkingHours>;
+
 export interface Stylist {
   id: string;
   name: string;
@@ -57,6 +76,8 @@ export interface Stylist {
   commissionRate: number; // e.g. 0.50 for 50%
   /** Disabled stylists remain archived but are excluded from booking. */
   active?: boolean;
+  /** Weekly hours controlled by the stylist and used by customer booking. */
+  weeklyAvailability?: WeeklyAvailability;
 }
 
 export interface Appointment {
