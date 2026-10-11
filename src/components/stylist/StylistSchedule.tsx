@@ -6,6 +6,7 @@ import {
   normalizeWeeklyAvailability,
   WEEKDAYS,
 } from '../../lib/stylistAvailability';
+import { isValidAvatarUrl, uploadAvatar, validateAvatarFile } from '../../lib/avatarUpload';
 
 interface StylistScheduleProps {
   stylist: Stylist;
@@ -47,22 +48,35 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
   const [editAvatar, setEditAvatar] = useState<string>(stylist.avatar);
   const [editBio, setEditBio] = useState<string>(stylist.bio || '');
   const [editSpecialties, setEditSpecialties] = useState<string>(stylist.specialties ? stylist.specialties.join(', ') : '');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setEditAvatar(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+
+    const validationError = validateAvatarFile(file);
+    if (validationError) {
+      setProfileError(validationError);
+      return;
     }
+
+    setProfileError(null);
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
   };
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
 
   // Sync prop changes if stylist prop updates from outside
   useEffect(() => {
@@ -76,6 +90,9 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
     setEditAvatar(currentStylist.avatar);
     setEditBio(currentStylist.bio || '');
     setEditSpecialties(currentStylist.specialties ? currentStylist.specialties.join(', ') : '');
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    setProfileError(null);
     setIsEditingProfile(true);
   };
 
@@ -118,27 +135,43 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    const updated: Stylist = {
-      ...currentStylist,
-      name: editName.trim() || currentStylist.name,
-      roleTitle: editTitle.trim() || currentStylist.roleTitle,
-      commissionRate: Math.min(Math.max(editCommission, 0), 100) / 100,
-      avatar: editAvatar.trim() || currentStylist.avatar,
-      bio: editBio.trim(),
-      specialties: editSpecialties
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    };
+    if (isSavingProfile) return;
+    if (!avatarFile && !isValidAvatarUrl(editAvatar.trim())) {
+      setProfileError('Enter a valid http:// or https:// profile photo URL.');
+      return;
+    }
 
+    setProfileError(null);
+    setIsSavingProfile(true);
     try {
+      const avatar = avatarFile
+        ? await uploadAvatar(currentStylist.id, avatarFile)
+        : editAvatar.trim() || currentStylist.avatar;
+      const updated: Stylist = {
+        ...currentStylist,
+        name: editName.trim() || currentStylist.name,
+        roleTitle: editTitle.trim() || currentStylist.roleTitle,
+        commissionRate: Math.min(Math.max(editCommission, 0), 100) / 100,
+        avatar,
+        bio: editBio.trim(),
+        specialties: editSpecialties
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      };
+
       await onUpdateStylist?.(updated);
       setCurrentStylist(updated);
+      setEditAvatar(avatar);
+      setAvatarFile(null);
+      setAvatarPreview(null);
       setIsEditingProfile(false);
       setToastMessage('Profile updated successfully!');
       setTimeout(() => setToastMessage(null), 4000);
     } catch (err: any) {
-      alert(err?.message || 'Stylist profile could not be saved.');
+      setProfileError(err?.message || 'Stylist profile could not be saved.');
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -455,7 +488,7 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
                       title="Click to select image file"
                     >
                       <img
-                        src={editAvatar}
+                        src={avatarPreview || editAvatar}
                         alt="Preview"
                         className="w-14 h-14 rounded-full object-cover border-2 border-[#B68A4C] shrink-0 shadow-xs"
                         onError={(e) => {
@@ -483,7 +516,12 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
                     <input
                       type="url"
                       value={editAvatar}
-                      onChange={(e) => setEditAvatar(e.target.value)}
+                      onChange={(e) => {
+                        setAvatarFile(null);
+                        setAvatarPreview(null);
+                        setEditAvatar(e.target.value);
+                        setProfileError(null);
+                      }}
                       placeholder="https://..."
                       className="w-full bg-[#FAF8F5] border border-[#B68A4C]/30 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#2D2D2D] focus:outline-none focus:border-[#8B5E34]"
                     />
@@ -498,7 +536,12 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
                       <button
                         key={idx}
                         type="button"
-                        onClick={() => setEditAvatar(preset.url)}
+                        onClick={() => {
+                          setAvatarFile(null);
+                          setAvatarPreview(null);
+                          setEditAvatar(preset.url);
+                          setProfileError(null);
+                        }}
                         className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
                           editAvatar === preset.url
                             ? 'bg-[#8B5E34] text-[#FAF8F5] border-[#8B5E34]'
@@ -603,6 +646,12 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
               </div>
 
               {/* Form Actions */}
+              {profileError && (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                  {profileError}
+                </p>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#B68A4C]/20">
                 <button
                   type="button"
@@ -613,10 +662,11 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#8B5E34] hover:bg-[#7A5A3A] text-[#FAF8F5] text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  disabled={isSavingProfile}
+                  className="px-5 py-2 rounded-xl bg-[#8B5E34] hover:bg-[#7A5A3A] text-[#FAF8F5] text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Save className="w-4 h-4" />
-                  <span>Save Profile Changes</span>
+                  <span>{isSavingProfile ? 'Uploading & Saving…' : 'Save Profile Changes'}</span>
                 </button>
               </div>
 
