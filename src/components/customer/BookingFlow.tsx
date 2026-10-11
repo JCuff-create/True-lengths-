@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Service, Stylist, Appointment, UserProfile } from '../../types';
 import { ChevronRight, Check, Clock, Calendar, User, Sparkles, ArrowLeft, AlertCircle } from 'lucide-react';
+import { buildBookableTimes, isStylistWorkingOnDate } from '../../lib/stylistAvailability';
 
 interface BookingFlowProps {
   services: Service[];
@@ -17,7 +18,6 @@ function buildUpcomingDates(count = 6) {
   for (let i = 1; out.length < count; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
-    if (d.getDay() === 0) continue; // skip Sundays
     out.push({
       dayName: d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
       dayNum: String(d.getDate()).padStart(2, '0'),
@@ -35,7 +35,7 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
   onBookingComplete,
   onCancel,
 }) => {
-  const datesList = useMemo(() => buildUpcomingDates(6), []);
+  const dateCandidates = useMemo(() => buildUpcomingDates(21), []);
   const [step, setStep] = useState<number>(1);
   const [selectedService, setSelectedService] = useState<Service | null>(
     initialCategory
@@ -44,15 +44,38 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
           null
       : services[0] || null
   );
-  const [selectedDate, setSelectedDate] = useState<string>(datesList[0]?.dateStr || '');
-  const [selectedTime, setSelectedTime] = useState<string>('10:00 AM');
+  const [selectedDate, setSelectedDate] = useState<string>(dateCandidates[0]?.dateStr || '');
+  const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedStylist, setSelectedStylist] = useState<Stylist | null>(stylists[0] || null);
   const [clientNotes, setClientNotes] = useState<string>('');
   const [bookError, setBookError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
 
-  const availableTimes = ['09:00 AM', '10:00 AM', '11:30 AM', '01:00 PM', '02:30 PM', '04:00 PM'];
+  const bookableDates = useMemo(
+    () => dateCandidates.filter((date) => isStylistWorkingOnDate(selectedStylist, date.dateStr)).slice(0, 6),
+    [dateCandidates, selectedStylist]
+  );
+  const availableTimes = useMemo(
+    () => buildBookableTimes(selectedStylist, selectedDate, selectedService?.durationMinutes || 60),
+    [selectedStylist, selectedDate, selectedService?.durationMinutes]
+  );
+
+  useEffect(() => {
+    if (bookableDates.length === 0) {
+      setSelectedDate('');
+      return;
+    }
+    if (!bookableDates.some((date) => date.dateStr === selectedDate)) {
+      setSelectedDate(bookableDates[0].dateStr);
+    }
+  }, [bookableDates, selectedDate]);
+
+  useEffect(() => {
+    if (!availableTimes.includes(selectedTime)) {
+      setSelectedTime(availableTimes[0] || '');
+    }
+  }, [availableTimes, selectedTime]);
 
   if (services.length === 0) {
     return (
@@ -172,7 +195,7 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
       <div className="flex items-center justify-between px-2 sm:px-6">
         {[
           { num: 1, label: 'Service' },
-          { num: 2, label: 'Date & Time' },
+          { num: 2, label: 'Stylist & Time' },
           { num: 3, label: 'Details' },
           { num: 4, label: 'Confirm' },
         ].map((s) => (
@@ -255,11 +278,54 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
       {step === 2 && (
         <div className="space-y-6">
           <div>
-            <h3 className="font-serif font-bold text-lg text-[#2D2D2D]">Select Date</h3>
-            <p className="text-xs text-[#2D2D2D]/60 mb-3">Available schedule for August 2026</p>
+            <h3 className="font-serif font-bold text-lg text-[#2D2D2D]">Select Stylist</h3>
+            <div className="space-y-3 mt-3">
+              {stylists.map((st) => {
+                const isSelected = selectedStylist?.id === st.id;
+                return (
+                  <button
+                    type="button"
+                    key={st.id}
+                    onClick={() => setSelectedStylist(st)}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all ${
+                      isSelected
+                        ? 'bg-[#FAF8F5] border-[#8B5E34] ring-2 ring-[#8B5E34]/20'
+                        : 'bg-[#F4F1EC]/60 border-[#B68A4C]/20'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <img
+                        src={st.avatar}
+                        alt={st.name}
+                        className="w-12 h-12 rounded-full object-cover border border-[#B68A4C]/30 shrink-0"
+                      />
+                      <div>
+                        <h4 className="font-serif font-bold text-sm text-[#2D2D2D]">{st.name}</h4>
+                        <p className="text-xs text-[#8B5E34]">{st.roleTitle}</p>
+                      </div>
+                    </div>
+                    <div
+                      className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                        isSelected ? 'bg-[#8B5E34] border-[#8B5E34] text-white' : 'border-[#2D2D2D]/30'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3 h-3" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-            <div className="grid grid-cols-6 gap-2">
-              {datesList.map((d) => {
+          <div>
+            <h3 className="font-serif font-bold text-lg text-[#2D2D2D]">Select Date</h3>
+            <p className="text-xs text-[#2D2D2D]/60 mb-3">
+              Showing {selectedStylist?.name || 'the stylist'}’s next available working days
+            </p>
+
+            {bookableDates.length > 0 ? (
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {bookableDates.map((d) => {
                 const isSelected = selectedDate === d.dateStr;
                 return (
                   <button
@@ -277,6 +343,11 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
                 );
               })}
             </div>
+            ) : (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-800">
+                This stylist has no working days available in the next three weeks.
+              </div>
+            )}
           </div>
 
           <div>
@@ -299,11 +370,17 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
                 );
               })}
             </div>
+            {selectedDate && availableTimes.length === 0 && (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+                No appointment times fit this service during the stylist’s hours. Please choose another day.
+              </p>
+            )}
           </div>
 
           <button
             onClick={handleNextStep}
-            className="w-full bg-[#8B5E34] hover:bg-[#7A5A3A] text-[#FAF8F5] font-semibold py-3.5 rounded-xl shadow-md transition-all mt-4"
+            disabled={!selectedStylist || !selectedDate || !selectedTime}
+            className="w-full bg-[#8B5E34] hover:bg-[#7A5A3A] disabled:cursor-not-allowed disabled:opacity-50 text-[#FAF8F5] font-semibold py-3.5 rounded-xl shadow-md transition-all mt-4"
           >
             Continue to Details
           </button>
@@ -313,47 +390,6 @@ export const BookingFlow: React.FC<BookingFlowProps> = ({
       {/* STEP 3: DETAILS & STYLIST */}
       {step === 3 && (
         <div className="space-y-6">
-          <div>
-            <h3 className="font-serif font-bold text-lg text-[#2D2D2D]">Select Stylist</h3>
-            <div className="space-y-3 mt-3">
-              {stylists.map((st) => {
-                const isSelected = selectedStylist?.id === st.id;
-                return (
-                  <div
-                    key={st.id}
-                    onClick={() => setSelectedStylist(st)}
-                    className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#FAF8F5] border-[#8B5E34] ring-2 ring-[#8B5E34]/20'
-                        : 'bg-[#F4F1EC]/60 border-[#B68A4C]/20'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <img
-                        src={st.avatar}
-                        alt={st.name}
-                        className="w-12 h-12 rounded-full object-cover border border-[#B68A4C]/30 shrink-0"
-                      />
-                      <div>
-                        <h4 className="font-serif font-bold text-sm text-[#2D2D2D]">{st.name}</h4>
-                        <p className="text-xs text-[#8B5E34]">{st.roleTitle}</p>
-                        <p className="text-[11px] text-[#2D2D2D]/60 mt-0.5">{st.specialties.join(', ')}</p>
-                      </div>
-                    </div>
-
-                    <div
-                      className={`w-5 h-5 rounded-full border flex items-center justify-center ${
-                        isSelected ? 'bg-[#8B5E34] border-[#8B5E34] text-white' : 'border-[#2D2D2D]/30'
-                      }`}
-                    >
-                      {isSelected && <Check className="w-3 h-3" />}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
           <div>
             <label className="block text-xs font-bold text-[#2D2D2D] mb-1.5">
               Special Notes / Hair History (Optional)

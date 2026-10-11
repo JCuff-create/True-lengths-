@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Appointment, HairFormula, Stylist } from '../../types';
-import { Clock, Scissors, Check, Play, Pause, RotateCcw, FileText, User, Edit3, Save, X, Camera, CheckCircle, Sparkles, Upload } from 'lucide-react';
+import { Appointment, HairFormula, Stylist, WeeklyAvailability } from '../../types';
+import { Clock, Scissors, Check, Play, Pause, RotateCcw, FileText, User, Edit3, Save, X, Camera, CheckCircle, Sparkles, Upload, CalendarClock } from 'lucide-react';
+import {
+  formatWorkingTime,
+  normalizeWeeklyAvailability,
+  WEEKDAYS,
+} from '../../lib/stylistAvailability';
 
 interface StylistScheduleProps {
   stylist: Stylist;
@@ -8,7 +13,7 @@ interface StylistScheduleProps {
   formulas: HairFormula[];
   onOpenFormula: (clientId: string, clientName: string) => void;
   onUpdateStatus: (appointmentId: string, status: 'upcoming' | 'in_progress' | 'completed') => void;
-  onUpdateStylist?: (updatedStylist: Stylist) => void;
+  onUpdateStylist?: (updatedStylist: Stylist) => void | Promise<void>;
 }
 
 const PRESET_AVATARS = [
@@ -28,6 +33,12 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
 }) => {
   const [currentStylist, setCurrentStylist] = useState<Stylist>(stylist);
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
+  const [isEditingHours, setIsEditingHours] = useState<boolean>(false);
+  const [editAvailability, setEditAvailability] = useState<WeeklyAvailability>(
+    normalizeWeeklyAvailability(stylist.weeklyAvailability)
+  );
+  const [hoursError, setHoursError] = useState<string | null>(null);
+  const [isSavingHours, setIsSavingHours] = useState(false);
 
   // Edit Form Fields
   const [editName, setEditName] = useState<string>(stylist.name);
@@ -68,7 +79,44 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
     setIsEditingProfile(true);
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleOpenHours = () => {
+    setEditAvailability(normalizeWeeklyAvailability(currentStylist.weeklyAvailability));
+    setHoursError(null);
+    setIsEditingHours(true);
+  };
+
+  const handleSaveHours = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const invalidDay = WEEKDAYS.find(({ key }) => {
+      const hours = editAvailability[key];
+      return hours.enabled && hours.start >= hours.end;
+    });
+    if (invalidDay) {
+      setHoursError(`${invalidDay.label}'s ending time must be later than its starting time.`);
+      return;
+    }
+
+    const updated: Stylist = {
+      ...currentStylist,
+      weeklyAvailability: editAvailability,
+    };
+
+    setHoursError(null);
+    setIsSavingHours(true);
+    try {
+      await onUpdateStylist?.(updated);
+      setCurrentStylist(updated);
+      setIsEditingHours(false);
+      setToastMessage('Working hours saved successfully!');
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: any) {
+      setHoursError(err?.message || 'Working hours could not be saved.');
+    } finally {
+      setIsSavingHours(false);
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const updated: Stylist = {
       ...currentStylist,
@@ -83,13 +131,15 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
         .filter(Boolean),
     };
 
-    setCurrentStylist(updated);
-    if (onUpdateStylist) {
-      onUpdateStylist(updated);
+    try {
+      await onUpdateStylist?.(updated);
+      setCurrentStylist(updated);
+      setIsEditingProfile(false);
+      setToastMessage('Profile updated successfully!');
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: any) {
+      alert(err?.message || 'Stylist profile could not be saved.');
     }
-    setIsEditingProfile(false);
-    setToastMessage('Profile updated successfully!');
-    setTimeout(() => setToastMessage(null), 4000);
   };
 
   // Processing Timer State (e.g. 35 mins color processing)
@@ -114,7 +164,8 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const myAppointments = appointments.filter((a) => a.stylistId === currentStylist.id || true);
+  const myAppointments = appointments.filter((a) => a.stylistId === currentStylist.id);
+  const weeklyAvailability = normalizeWeeklyAvailability(currentStylist.weeklyAvailability);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -202,6 +253,160 @@ export const StylistSchedule: React.FC<StylistScheduleProps> = ({
           </div>
         )}
       </div>
+
+      {/* WEEKLY WORKING HOURS */}
+      <div className="bg-[#FAF8F5] border border-[#B68A4C]/25 p-4 sm:p-5 rounded-2xl shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-[#8B5E34]">
+              <CalendarClock className="w-5 h-5" />
+              <h3 className="font-serif text-lg font-bold text-[#2D2D2D]">My Working Hours</h3>
+            </div>
+            <p className="text-xs text-[#2D2D2D]/60 mt-1">
+              Customers will only see appointment times inside these hours.
+            </p>
+          </div>
+          <button
+            onClick={handleOpenHours}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#8B5E34] px-4 py-2.5 text-xs font-bold text-[#FAF8F5] shadow-xs transition-all hover:bg-[#7A5A3A]"
+          >
+            <Edit3 className="w-4 h-4" />
+            Edit Hours
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-4 pt-4 border-t border-[#B68A4C]/15">
+          {WEEKDAYS.map(({ key, shortLabel }) => {
+            const hours = weeklyAvailability[key];
+            return (
+              <div
+                key={key}
+                className={`rounded-xl border px-2 py-2 text-center ${
+                  hours.enabled
+                    ? 'bg-[#F4F1EC] border-[#B68A4C]/20'
+                    : 'bg-gray-100/70 border-gray-200'
+                }`}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-wide text-[#2D2D2D]/60">
+                  {shortLabel}
+                </p>
+                <p className={`mt-1 text-[10px] font-semibold ${hours.enabled ? 'text-[#8B5E34]' : 'text-gray-400'}`}>
+                  {hours.enabled
+                    ? `${formatWorkingTime(hours.start)}–${formatWorkingTime(hours.end)}`
+                    : 'Closed'}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {isEditingHours && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-xs">
+          <div className="my-8 w-full max-w-xl rounded-2xl border border-[#B68A4C]/40 bg-[#FAF8F5] p-5 shadow-2xl sm:p-6">
+            <div className="flex items-center justify-between border-b border-[#B68A4C]/20 pb-3">
+              <div>
+                <h3 className="font-serif text-xl font-bold text-[#2D2D2D]">Set Working Hours</h3>
+                <p className="text-xs text-[#2D2D2D]/60">Choose the days and times you accept appointments.</p>
+              </div>
+              <button
+                onClick={() => setIsEditingHours(false)}
+                className="rounded-lg p-1.5 text-[#2D2D2D]/60 transition-colors hover:bg-[#F4F1EC] hover:text-[#2D2D2D]"
+                aria-label="Close working hours editor"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveHours} className="mt-4 space-y-2.5">
+              {WEEKDAYS.map(({ key, label }) => {
+                const hours = editAvailability[key];
+                return (
+                  <div
+                    key={key}
+                    className={`grid grid-cols-[1fr_auto] sm:grid-cols-[130px_1fr] items-center gap-3 rounded-xl border p-3 ${
+                      hours.enabled
+                        ? 'border-[#B68A4C]/25 bg-white'
+                        : 'border-gray-200 bg-gray-100/70'
+                    }`}
+                  >
+                    <label className="flex items-center gap-2 text-xs font-bold text-[#2D2D2D]">
+                      <input
+                        type="checkbox"
+                        checked={hours.enabled}
+                        onChange={(event) =>
+                          setEditAvailability((current) => ({
+                            ...current,
+                            [key]: { ...current[key], enabled: event.target.checked },
+                          }))
+                        }
+                        className="h-4 w-4 accent-[#8B5E34]"
+                      />
+                      {label}
+                    </label>
+
+                    {hours.enabled ? (
+                      <div className="col-span-2 sm:col-span-1 flex items-center gap-2">
+                        <input
+                          type="time"
+                          value={hours.start}
+                          onChange={(event) =>
+                            setEditAvailability((current) => ({
+                              ...current,
+                              [key]: { ...current[key], start: event.target.value },
+                            }))
+                          }
+                          className="min-w-0 flex-1 rounded-lg border border-[#B68A4C]/30 bg-[#FAF8F5] px-2 py-2 text-xs text-[#2D2D2D]"
+                          required
+                        />
+                        <span className="text-[10px] font-semibold text-[#2D2D2D]/50">to</span>
+                        <input
+                          type="time"
+                          value={hours.end}
+                          onChange={(event) =>
+                            setEditAvailability((current) => ({
+                              ...current,
+                              [key]: { ...current[key], end: event.target.value },
+                            }))
+                          }
+                          className="min-w-0 flex-1 rounded-lg border border-[#B68A4C]/30 bg-[#FAF8F5] px-2 py-2 text-xs text-[#2D2D2D]"
+                          required
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-right text-xs font-semibold text-gray-400">Closed</span>
+                    )}
+                  </div>
+                );
+              })}
+
+              {hoursError && (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                  {hoursError}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 border-t border-[#B68A4C]/20 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingHours(false)}
+                  className="rounded-xl bg-[#F4F1EC] px-4 py-2.5 text-xs font-bold text-[#2D2D2D]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingHours}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#8B5E34] px-5 py-2.5 text-xs font-bold text-[#FAF8F5] shadow-sm transition-all hover:bg-[#7A5A3A] disabled:opacity-60"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSavingHours ? 'Saving…' : 'Save Hours'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* EDIT PROFILE MODAL / EXPANDABLE CARD */}
       {isEditingProfile && (
