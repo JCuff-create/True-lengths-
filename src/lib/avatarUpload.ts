@@ -1,20 +1,11 @@
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { storage } from './firebase';
+import { auth } from './firebase';
+import {
+  ALLOWED_AVATAR_TYPES,
+  MAX_AVATAR_BYTES,
+  validateAvatarFile,
+} from './avatarPolicy';
 
-export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
-export const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
-
-type AvatarFileLike = Pick<File, 'size' | 'type'>;
-
-export function validateAvatarFile(file: AvatarFileLike): string | null {
-  if (!ALLOWED_AVATAR_TYPES.includes(file.type as (typeof ALLOWED_AVATAR_TYPES)[number])) {
-    return 'Choose a JPG, PNG, or WebP image.';
-  }
-
-  if (file.size <= 0) return 'The selected image is empty.';
-  if (file.size > MAX_AVATAR_BYTES) return 'Profile pictures must be 5 MB or smaller.';
-  return null;
-}
+export { ALLOWED_AVATAR_TYPES, MAX_AVATAR_BYTES, validateAvatarFile };
 
 export function isValidAvatarUrl(value: string): boolean {
   if (!value) return true;
@@ -29,15 +20,39 @@ export function isValidAvatarUrl(value: string): boolean {
 export async function uploadAvatar(uid: string, file: File): Promise<string> {
   const validationError = validateAvatarFile(file);
   if (validationError) throw new Error(validationError);
-  if (!uid) throw new Error('Sign in again before uploading a profile picture.');
 
-  const avatarRef = ref(storage, `users/${uid}/avatar`);
-  await uploadBytes(avatarRef, file, {
-    contentType: file.type,
-    cacheControl: 'public,max-age=300',
+  const targetUid = uid.trim();
+  const currentUser = auth.currentUser;
+  if (!targetUid || !currentUser) {
+    throw new Error('Sign in again before uploading a profile picture.');
+  }
+
+  // Storage Rules cannot read the named Firestore database, so salon checks
+  // happen on the server. This token belongs to the signed-in user, who may
+  // be an owner uploading on behalf of a stylist.
+  const token = await currentUser.getIdToken();
+  const response = await fetch(`/api/users/${encodeURIComponent(targetUid)}/avatar`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': file.type,
+    },
+    body: file,
   });
 
-  const downloadUrl = await getDownloadURL(avatarRef);
-  const separator = downloadUrl.includes('?') ? '&' : '?';
-  return `${downloadUrl}${separator}v=${Date.now()}`;
+  let payload: { ok?: boolean; avatar?: unknown; error?: unknown } | null = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || payload?.ok !== true || typeof payload.avatar !== 'string' || !payload.avatar) {
+    const message = typeof payload?.error === 'string' && payload.error
+      ? payload.error
+      : 'Profile picture upload failed.';
+    throw new Error(message);
+  }
+
+  return payload.avatar;
 }
