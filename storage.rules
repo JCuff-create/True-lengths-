@@ -1,13 +1,31 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isActiveOwnerForStylist(userId) {
+      // Owners edit staff profiles from the owner portal, so the authenticated
+      // UID differs from the stylist whose avatar is being replaced.
+      let actor = firestore.get(
+        /databases/(default)/documents/users/$(request.auth.uid)
+      ).data;
+      let stylist = firestore.get(
+        /databases/(default)/documents/users/$(userId)
+      ).data;
+
+      return request.auth != null
+        && actor.role == 'owner'
+        && actor.status == 'active'
+        && stylist.role == 'stylist'
+        && actor.salonId == stylist.salonId;
+    }
+
     match /users/{userId}/avatar {
       allow read: if request.auth != null;
       allow create, update: if request.auth != null
-        && request.auth.uid == userId
+        && (request.auth.uid == userId || isActiveOwnerForStylist(userId))
         && request.resource.size <= 5 * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|png|webp)');
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null
+        && (request.auth.uid == userId || isActiveOwnerForStylist(userId));
     }
 
     match /{allPaths=**} {

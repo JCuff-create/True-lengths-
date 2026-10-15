@@ -24,6 +24,7 @@ import {
   giftCardConstraintsForRole,
   notificationConstraintsForRole,
 } from '../lib/salonStore';
+import { buildBookableStylistDirectory } from '../lib/stylistDirectory';
 
 export type SalonActor = {
   uid: string;
@@ -95,7 +96,7 @@ export function useSalonStore(actor: SalonActor | null) {
         // Legacy stylist records without this field remain active. Deactivated
         // records stay in Firestore for possible restoration but never appear
         // in customer booking or operational selectors.
-        setStylists(items.filter((stylist) => stylist.active !== false));
+        setStylists(buildBookableStylistDirectory(items));
         done();
       }),
       subscribeSalonCollection<Appointment>(
