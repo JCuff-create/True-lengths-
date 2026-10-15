@@ -1,16 +1,24 @@
 import express from 'express';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { applicationDefault, getApps as getAdminApps, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import firebaseConfigJson from './firebase-applet-config.json';
+import {
+  DEFAULT_SALON_ID,
+  avatarObjectPath,
+  buildFirebaseDownloadUrl,
+  mergeDownloadTokens,
+} from './src/lib/avatarPolicy';
+import { avatarUploadHandlers } from './src/lib/avatarRoute';
 
 const app = express();
 // Cloud Run injects PORT (typically 8080). Local / AI Studio default to 3000.
 const PORT = Number(process.env.PORT) || 3000;
-const DEFAULT_SALON_ID = 'truelengths-main';
 
 app.use(express.json());
 
@@ -19,6 +27,7 @@ const adminApp = getAdminApps().length
   : initializeAdminApp({
       credential: applicationDefault(),
       projectId: firebaseConfigJson.projectId,
+      storageBucket: firebaseConfigJson.storageBucket,
     });
 const adminAuth = getAdminAuth(adminApp);
 const adminDb = firebaseConfigJson.firestoreDatabaseId
@@ -28,6 +37,44 @@ const adminDb = firebaseConfigJson.firestoreDatabaseId
 function bearerToken(authorizationHeader?: string) {
   if (!authorizationHeader?.startsWith('Bearer ')) return null;
   return authorizationHeader.slice('Bearer '.length).trim();
+}
+
+function isStorageNotFound(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 404 || code === '404';
+}
+
+async function saveAvatarObject(targetUid: string, body: Buffer, contentType: string): Promise<string> {
+  const bucketName = firebaseConfigJson.storageBucket;
+  if (!bucketName) throw new Error('Firebase Storage bucket is not configured.');
+
+  const bucket = getAdminStorage(adminApp).bucket(bucketName);
+  const objectPath = avatarObjectPath(targetUid);
+  const file = bucket.file(objectPath);
+  let existingTokens = '';
+  try {
+    const [metadata] = await file.getMetadata();
+    const custom = metadata.metadata ?? {};
+    const saved = custom.firebaseStorageDownloadTokens ?? custom.firebasestoragedownloadtokens;
+    existingTokens = typeof saved === 'string' ? saved : '';
+  } catch (error) {
+    if (!isStorageNotFound(error)) throw error;
+  }
+
+  const token = randomUUID();
+  await file.save(body, {
+    resumable: false,
+    metadata: {
+      contentType,
+      cacheControl: 'public,max-age=300',
+      metadata: {
+        firebaseStorageDownloadTokens: mergeDownloadTokens(existingTokens, token),
+      },
+    },
+  });
+
+  return buildFirebaseDownloadUrl(bucket.name, objectPath, token);
 }
 
 // Permanent removal must run on the trusted server: client SDKs cannot delete
@@ -107,6 +154,17 @@ app.post('/api/admin/stylists/permanent-remove', async (req, res) => {
     return res.status(500).json({ error: 'Permanent removal failed. The stylist was left disabled for safety.' });
   }
 });
+
+// Profile photos are raw image bodies. firebase-admin writes the object because
+// Storage Rules cannot read salon membership from the named Firestore database.
+app.post('/api/users/:targetUid/avatar', ...avatarUploadHandlers({
+  verifyIdToken: (token) => adminAuth.verifyIdToken(token),
+  loadUser: async (uid) => {
+    const snapshot = await adminDb.doc(`users/${uid}`).get();
+    return { exists: snapshot.exists, data: snapshot.data() ?? null };
+  },
+  upload: ({ targetUid, body, contentType }) => saveAvatarObject(targetUid, body, contentType),
+}));
 
 // Initialize Google GenAI SDK on the server side
 const apiKey = process.env.GEMINI_API_KEY;

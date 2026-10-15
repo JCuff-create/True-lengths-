@@ -26,6 +26,9 @@ jobs:
       - name: Lint (TypeScript)
         run: npm run lint
 
+      - name: Avatar upload tests
+        run: npm run test:avatar
+
       - name: Build
         run: npm run build
 
