@@ -3,6 +3,7 @@ import {
   User,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   deleteUser,
@@ -20,6 +21,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { submitPasswordReset, type PasswordResetResult } from '../lib/passwordReset';
 import { StaffInvite, UserProfile, UserRole, UserStatus } from '../types';
 import { DEFAULT_SALON_ID, clearLegacyLocalDemoData } from '../lib/salonStore';
 
@@ -30,6 +32,7 @@ interface AuthContextType {
   authError: string | null;
   clearError: () => void;
   signIn: (email: string, pass: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<PasswordResetResult>;
   signUpCustomer: (data: {
     email: string;
     pass: string;
@@ -221,6 +224,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(cleanMsg);
     }
   };
+
+  const requestPasswordReset = (email: string) =>
+    submitPasswordReset(email, (normalizedEmail) => sendPasswordResetEmail(auth, normalizedEmail));
 
   const signUpCustomer = async (data: {
     email: string;
@@ -574,6 +580,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authError,
         clearError,
         signIn,
+        requestPasswordReset,
         signUpCustomer,
         signUpStaff,
         signOutUser,
