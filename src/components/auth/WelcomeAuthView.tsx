@@ -9,6 +9,8 @@ import {
   AlertCircle,
   KeyRound,
   ShieldCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 export const WelcomeAuthView: React.FC = () => {
@@ -16,6 +18,7 @@ export const WelcomeAuthView: React.FC = () => {
     signIn,
     signUpCustomer,
     signUpStaff,
+    requestPasswordReset,
     authError,
     clearError,
     loading
@@ -32,6 +35,10 @@ export const WelcomeAuthView: React.FC = () => {
   const [hairType, setHairType] = useState('4C - High Density Coily');
   const [inviteCode, setInviteCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<{ tone: 'neutral' | 'error'; text: string } | null>(null);
+  const showForgotPassword = mode === 'signin' || (mode === 'staff_login' && staffAction === 'login');
 
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get('staffInvite');
@@ -56,6 +63,7 @@ export const WelcomeAuthView: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setResetMessage(null);
     clearError();
 
     try {
@@ -89,6 +97,22 @@ export const WelcomeAuthView: React.FC = () => {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (isResetting || isSubmitting) return;
+    setIsResetting(true);
+    setResetMessage(null);
+    clearError();
+    try {
+      const result = await requestPasswordReset(email);
+      setResetMessage({
+        tone: result.status === 'sent' ? 'neutral' : 'error',
+        text: result.message,
+      });
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#FAF8F5] flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       
@@ -117,7 +141,7 @@ export const WelcomeAuthView: React.FC = () => {
           <div className="flex rounded-2xl bg-[#F4F1EC] p-1 border border-[#B68A4C]/20 text-xs font-semibold">
             <button
               type="button"
-              onClick={() => { setMode('signin'); clearError(); }}
+              onClick={() => { setMode('signin'); setResetMessage(null); clearError(); }}
               className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
                 mode === 'signin'
                   ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
@@ -129,7 +153,7 @@ export const WelcomeAuthView: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => { setMode('register_customer'); clearError(); }}
+              onClick={() => { setMode('register_customer'); setResetMessage(null); clearError(); }}
               className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
                 mode === 'register_customer'
                   ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-sm'
@@ -141,7 +165,7 @@ export const WelcomeAuthView: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => { setMode('staff_login'); clearError(); }}
+              onClick={() => { setMode('staff_login'); setResetMessage(null); clearError(); }}
               className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
                 mode === 'staff_login'
                   ? 'bg-[#2D2D2D] text-[#B68A4C] shadow-sm'
@@ -194,14 +218,14 @@ export const WelcomeAuthView: React.FC = () => {
               <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#F4F1EC] p-1 border border-[#B68A4C]/20">
                 <button
                   type="button"
-                  onClick={() => { setStaffAction('login'); clearError(); }}
+                  onClick={() => { setStaffAction('login'); setResetMessage(null); clearError(); }}
                   className={`py-2 rounded-lg text-xs font-semibold transition-all ${staffAction === 'login' ? 'bg-white text-[#2D2D2D] shadow-sm' : 'text-gray-500'}`}
                 >
                   Staff Sign In
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setStaffAction('register'); clearError(); }}
+                  onClick={() => { setStaffAction('register'); setResetMessage(null); clearError(); }}
                   className={`py-2 rounded-lg text-xs font-semibold transition-all ${staffAction === 'register' ? 'bg-[#2D2D2D] text-[#B68A4C] shadow-sm' : 'text-gray-500'}`}
                 >
                   Register with Invite
@@ -227,34 +251,81 @@ export const WelcomeAuthView: React.FC = () => {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">Email Address</label>
+              <label htmlFor="login-email" className="block text-xs font-semibold text-[#2D2D2D] mb-1">Email Address</label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-[#8B5E34] absolute left-3 top-2.5" />
                 <input
+                  id="login-email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setResetMessage(null);
+                  }}
                   required
-                  placeholder={mode === 'staff_login' ? 'you@example.com' : 'you@example.com'}
+                  autoComplete="email"
+                  placeholder="you@example.com"
                   className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#2D2D2D] mb-1">Password</label>
+              <label htmlFor="login-password" className="block text-xs font-semibold text-[#2D2D2D] mb-1">Password</label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-[#8B5E34] absolute left-3 top-2.5" />
                 <input
-                  type="password"
+                  id="login-password"
+                  type={passwordVisible ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete={showForgotPassword ? 'current-password' : 'new-password'}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
+                  className="w-full pl-9 pr-10 py-2 bg-white border border-[#B68A4C]/30 rounded-xl text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
                 />
+                <button
+                  type="button"
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                  aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                  aria-pressed={passwordVisible}
+                  aria-controls="login-password"
+                  className="absolute right-2 top-1.5 p-1 rounded-md text-[#8B5E34] hover:text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
+                >
+                  {passwordVisible ? (
+                    <EyeOff className="w-4 h-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="w-4 h-4" aria-hidden="true" />
+                  )}
+                </button>
               </div>
             </div>
+
+            {showForgotPassword && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={isResetting || isSubmitting}
+                  className="text-xs font-semibold text-[#8B5E34] hover:text-[#2D2D2D] underline-offset-2 hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isResetting ? 'Sending reset message...' : 'Forgot password?'}
+                </button>
+              </div>
+            )}
+
+            {showForgotPassword && resetMessage && (
+              <p
+                role={resetMessage.tone === 'error' ? 'alert' : 'status'}
+                className={`text-xs p-3 rounded-2xl border ${
+                  resetMessage.tone === 'error'
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : 'bg-[#FAF8F5] border-[#B68A4C]/20 text-[#8B5E34]'
+                }`}
+              >
+                {resetMessage.text}
+              </p>
+            )}
 
             {(mode === 'register_customer' || (mode === 'staff_login' && staffAction === 'register')) && (
               <>
