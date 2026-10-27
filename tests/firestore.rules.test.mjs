@@ -4,6 +4,7 @@
  * self-promotion, cross-customer access, unauthorized owner create, unknown collections.
  * Run: npm run test:rules
  */
+import { runInventoryChecks } from './inventory.persistence.mjs';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
@@ -554,6 +555,8 @@ async function main() {
     await assertFails(getDoc(doc(owner(), 'secrets/x')));
     await assertFails(setDoc(doc(customer(), 'secrets/x'), { a: 1 }));
   });
+
+  await runInventoryChecks(testEnv, check);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   await testEnv.cleanup();

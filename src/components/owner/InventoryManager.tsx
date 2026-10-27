@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { InventoryItem } from '../../types';
+import { inventoryStatus, inventoryThreshold, isLowStock, validPurchaseUrl, validateInventoryDetails, validateReceivedQuantity } from '../../lib/inventory';
 import {
   Package,
   AlertTriangle,
@@ -9,18 +10,15 @@ import {
   Search,
   X,
   Check,
-  RefreshCw,
-  Tag,
-  DollarSign,
   Boxes
 } from 'lucide-react';
 
 interface InventoryManagerProps {
   inventory: InventoryItem[];
-  onRestockItem: (id: string, amount: number) => void;
-  onUpdateItem?: (updatedItem: InventoryItem) => void;
-  onAddItem?: (newItem: InventoryItem) => void;
-  onDeleteItem?: (id: string) => void;
+  onRestockItem: (id: string, amount: number) => Promise<void>;
+  onUpdateItem?: (updatedItem: InventoryItem) => Promise<void>;
+  onAddItem?: (newItem: InventoryItem) => Promise<void>;
+  onDeleteItem?: (id: string) => Promise<void>;
 }
 
 export const InventoryManager: React.FC<InventoryManagerProps> = ({
@@ -47,6 +45,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
     unitCost: number;
     retailPrice: number;
     supplier: string;
+    purchaseUrl: string;
   }>({
     name: '',
     brand: '',
@@ -56,8 +55,13 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
     unitCost: 12.0,
     retailPrice: 28.0,
     supplier: 'True Lengths Labs',
+    purchaseUrl: '',
   });
 
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [receivingItem, setReceivingItem] = useState<InventoryItem | null>(null);
+  const [receivedQuantity, setReceivedQuantity] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -71,12 +75,12 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.supplier.toLowerCase().includes(searchQuery.toLowerCase());
+      (item.supplierName ?? item.supplier ?? '').toLowerCase().includes(searchQuery.toLowerCase());
 
     if (!matchesSearch) return false;
 
     if (filter === 'low_stock') {
-      return item.stockCount <= item.reorderLevel;
+      return isLowStock(item);
     }
     if (filter !== 'all') {
       return item.category === filter;
@@ -86,6 +90,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
 
   // Open Add Modal
   const handleOpenAddModal = () => {
+    setError(null);
     setEditingItem(null);
     setFormData({
       name: '',
@@ -96,109 +101,100 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
       unitCost: 15.0,
       retailPrice: 35.0,
       supplier: 'True Lengths Labs',
+      purchaseUrl: '',
     });
     setIsModalOpen(true);
   };
 
   // Open Edit Modal
   const handleOpenEditModal = (item: InventoryItem) => {
+    setError(null);
     setEditingItem(item);
     setFormData({
       name: item.name,
       brand: item.brand,
       category: item.category,
       stockCount: item.stockCount,
-      reorderLevel: item.reorderLevel,
+      reorderLevel: inventoryThreshold(item),
       unitCost: item.unitCost,
       retailPrice: item.retailPrice,
-      supplier: item.supplier,
+      supplier: item.supplierName ?? item.supplier ?? '',
+      purchaseUrl: item.purchaseUrl ?? '',
     });
     setIsModalOpen(true);
   };
 
-  // Save Modal Form (Create or Update)
-  const handleSubmitForm = (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim()) return;
-
-    const isLow = formData.stockCount <= formData.reorderLevel;
-    const isOut = formData.stockCount === 0;
-    const computedStatus: InventoryItem['status'] = isOut
-      ? 'out_of_stock'
-      : isLow
-      ? 'low_stock'
-      : 'in_stock';
-
-    if (editingItem) {
-      // Update existing
-      const updated: InventoryItem = {
-        ...editingItem,
-        name: formData.name.trim(),
-        brand: formData.brand.trim() || 'True Lengths Pro',
-        category: formData.category,
-        stockCount: Number(formData.stockCount),
-        reorderLevel: Number(formData.reorderLevel),
-        unitCost: Number(formData.unitCost),
-        retailPrice: Number(formData.retailPrice),
-        supplier: formData.supplier.trim() || 'True Lengths Labs',
-        status: computedStatus,
-      };
-
-      if (onUpdateItem) {
-        onUpdateItem(updated);
-      }
-      showToast(`Updated "${updated.name}" inventory details.`);
-    } else {
-      // Add new item
-      const newItem: InventoryItem = {
-        id: `inv-${Date.now()}`,
-        name: formData.name.trim(),
-        brand: formData.brand.trim() || 'True Lengths Pro',
-        category: formData.category,
-        stockCount: Number(formData.stockCount),
-        reorderLevel: Number(formData.reorderLevel),
-        unitCost: Number(formData.unitCost),
-        retailPrice: Number(formData.retailPrice),
-        supplier: formData.supplier.trim() || 'True Lengths Labs',
-        status: computedStatus,
-      };
-
-      if (onAddItem) {
-        onAddItem(newItem);
-      }
-      showToast(`Added "${newItem.name}" to inventory.`);
-    }
-
-    setIsModalOpen(false);
-  };
-
-  // Delete Item
-  const handleDelete = (item: InventoryItem) => {
-    if (onDeleteItem) {
-      onDeleteItem(item.id);
-      showToast(`Removed "${item.name}" from inventory.`);
-    }
-  };
-
-  // Quick Quantity Adjustment (+ / -)
-  const handleAdjustStock = (item: InventoryItem, delta: number) => {
-    const newStock = Math.max(0, item.stockCount + delta);
-    const isLow = newStock <= item.reorderLevel;
-    const isOut = newStock === 0;
-    const computedStatus: InventoryItem['status'] = isOut
-      ? 'out_of_stock'
-      : isLow
-      ? 'low_stock'
-      : 'in_stock';
-
-    const updated: InventoryItem = {
-      ...item,
-      stockCount: newStock,
-      status: computedStatus,
+    if (pending || !formData.name.trim()) return;
+    setError(null);
+    setToastMessage(null);
+    const item: InventoryItem = {
+      ...editingItem,
+      id: editingItem?.id ?? `inv-${crypto.randomUUID()}`,
+      name: formData.name.trim(),
+      brand: formData.brand.trim() || 'True Lengths Pro',
+      category: formData.category,
+      stockCount: formData.stockCount,
+      reorderLevel: formData.reorderLevel,
+      lowStockThreshold: formData.reorderLevel,
+      unitCost: formData.unitCost,
+      retailPrice: formData.retailPrice,
+      supplier: formData.supplier.trim(),
+      supplierName: formData.supplier.trim(),
+      purchaseUrl: formData.purchaseUrl.trim(),
+      status: inventoryStatus(formData),
     };
+    setPending(true);
+    try {
+      validateInventoryDetails(item);
+      if (editingItem) {
+        if (!onUpdateItem) throw new Error('Inventory updates are unavailable.');
+        await onUpdateItem(item);
+      } else {
+        if (!onAddItem) throw new Error('Adding inventory is unavailable.');
+        await onAddItem(item);
+      }
+      showToast(`${editingItem ? 'Updated' : 'Added'} "${item.name}".`);
+      setIsModalOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save product. Please retry.');
+    } finally {
+      setPending(false);
+    }
+  };
 
-    if (onUpdateItem) {
-      onUpdateItem(updated);
+  const handleReceive = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!receivingItem || pending) return;
+    setError(null);
+    setToastMessage(null);
+    const amount = Number(receivedQuantity);
+    setPending(true);
+    try {
+      validateReceivedQuantity(amount);
+      await onRestockItem(receivingItem.id, amount);
+      showToast(`Received ${amount} units of ${receivingItem.name}. Stock updated.`);
+      setReceivingItem(null);
+      setReceivedQuantity('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to receive stock. Please retry.');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleDelete = async (item: InventoryItem) => {
+    if (!onDeleteItem || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await onDeleteItem(item.id);
+      showToast(`Removed "${item.name}" from inventory.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to remove product.');
+    } finally {
+      setPending(false);
     }
   };
 
@@ -212,6 +208,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       
+      {error && !isModalOpen && !receivingItem && <p role="alert" className="text-sm text-red-800 bg-red-50 p-3 rounded-xl">{error}</p>}
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-[#8B5E34] text-[#FAF8F5] border-2 border-[#B68A4C] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in max-w-md w-full">
@@ -234,6 +231,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
         </div>
 
         <button
+          disabled={pending}
           onClick={handleOpenAddModal}
           className="bg-[#B68A4C] hover:bg-[#8B5E34] text-[#FAF8F5] font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer self-start sm:self-auto"
         >
@@ -307,25 +305,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
         </div>
       </div>
 
-      {/* AI Stockout Predictor Banner */}
-      <div className="bg-[#2D2D2D] text-[#FAF8F5] border border-[#B68A4C]/30 rounded-2xl p-5 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="space-y-1">
-          <span className="text-[10px] font-bold text-[#B68A4C] uppercase tracking-wider flex items-center gap-1">
-            <Package className="w-3.5 h-3.5" /> AI Predictive Supply Engine
-          </span>
-          <h4 className="font-serif text-lg font-bold">2 Key Backbar Products Near Stockout</h4>
-          <p className="text-xs text-[#FAF8F5]/80">
-            Based on upcoming weekend Silk Press & Balayage appointments, <strong>Silk Thermal Protectant Serum</strong> will deplete by Thursday.
-          </p>
-        </div>
-
-        <button
-          onClick={() => onRestockItem('inv-2', 12)}
-          className="shrink-0 bg-[#B68A4C] hover:bg-[#8B5E34] text-[#FAF8F5] font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
-        >
-          Auto-Reorder Supplier Batch
-        </button>
-      </div>
+      <p className="text-xs text-[#2D2D2D]/70">
+        Reorder opens your supplier’s website. Record deliveries with Receive Stock after products arrive.
+      </p>
 
       {/* Inventory List */}
       <div className="space-y-3">
@@ -351,8 +333,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           </div>
         ) : (
           filteredInventory.map((item) => {
-            const isLow = item.stockCount <= item.reorderLevel;
+            const isLow = isLowStock(item);
             const isOut = item.stockCount === 0;
+            const purchaseUrl = validPurchaseUrl(item.purchaseUrl);
 
             return (
               <div
@@ -378,7 +361,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                           : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                       }`}
                     >
-                      {isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock'}
+                      {isOut ? 'Out of Stock · Low Stock' : isLow ? 'Low Stock' : 'In Stock'}
                     </span>
                     <span className="text-[10px] font-medium bg-[#8B5E34]/10 text-[#8B5E34] px-2 py-0.5 rounded-md border border-[#8B5E34]/20">
                       {item.category}
@@ -387,7 +370,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
 
                   <p className="text-xs text-[#8B5E34]">
                     Brand: <span className="font-semibold text-[#2D2D2D]">{item.brand}</span> • Supplier:{' '}
-                    <span className="font-semibold text-[#2D2D2D]">{item.supplier}</span>
+                    <span className="font-semibold text-[#2D2D2D]">{item.supplierName ?? item.supplier ?? 'Not set'}</span>
                   </p>
 
                   <div className="flex items-center gap-4 text-xs text-[#2D2D2D]/70 font-medium">
@@ -400,42 +383,26 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                 {/* Right Action Controls */}
                 <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 border-[#B68A4C]/15 pt-3 lg:pt-0">
                   
-                  {/* Stock Counter Controls */}
-                  <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-[#B68A4C]/30 shadow-2xs">
-                    <button
-                      onClick={() => handleAdjustStock(item, -1)}
-                      className="w-6 h-6 rounded-lg bg-gray-100 hover:bg-gray-200 text-[#2D2D2D] font-bold text-xs flex items-center justify-center transition-all cursor-pointer"
-                      title="Decrease stock count"
-                    >
-                      -
-                    </button>
-                    <div className="text-center min-w-[60px]">
-                      <span className="font-serif font-bold text-base text-[#2D2D2D] block leading-none">
-                        {item.stockCount}
-                      </span>
-                      <span className="text-[9px] text-[#2D2D2D]/60 block mt-0.5">
-                        Reorder: {item.reorderLevel}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => handleAdjustStock(item, 1)}
-                      className="w-6 h-6 rounded-lg bg-gray-100 hover:bg-gray-200 text-[#2D2D2D] font-bold text-xs flex items-center justify-center transition-all cursor-pointer"
-                      title="Increase stock count"
-                    >
-                      +
-                    </button>
+                  <div className="text-center bg-white px-3 py-1.5 rounded-xl border border-[#B68A4C]/30">
+                    <strong className="font-serif text-base block">{item.stockCount} units</strong>
+                    <span className="text-[10px]">Low stock at {inventoryThreshold(item)} or fewer</span>
                   </div>
-
-                  {/* Restock +10 Quick Button */}
-                  <button
-                    onClick={() => onRestockItem(item.id, 10)}
-                    className="bg-[#8B5E34] hover:bg-[#7A5A3A] text-[#FAF8F5] font-semibold text-xs px-3 py-2 rounded-xl transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Restock +10
+                  {purchaseUrl && (
+                    <a href={purchaseUrl} target="_blank" rel="noopener noreferrer"
+                      aria-label={`Reorder ${item.name} (opens in a new tab)`}
+                      className="bg-white text-[#8B5E34] border border-[#B68A4C]/40 font-semibold text-xs px-3 py-2 rounded-xl">
+                      Reorder
+                    </a>
+                  )}
+                  <button disabled={pending}
+                    onClick={() => { setReceivingItem(item); setReceivedQuantity(''); setError(null); }}
+                    className="bg-[#8B5E34] hover:bg-[#7A5A3A] text-[#FAF8F5] font-semibold text-xs px-3 py-2 rounded-xl disabled:opacity-50">
+                    Receive Stock
                   </button>
 
                   {/* Edit Button */}
                   <button
+                    disabled={pending}
                     onClick={() => handleOpenEditModal(item)}
                     className="p-2 rounded-xl bg-white hover:bg-[#B68A4C] text-[#8B5E34] hover:text-white border border-[#B68A4C]/30 transition-all shadow-2xs cursor-pointer"
                     title="Edit Inventory Item"
@@ -445,6 +412,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
 
                   {/* Delete Button */}
                   <button
+                    disabled={pending}
                     onClick={() => handleDelete(item)}
                     className="p-2 rounded-xl bg-white hover:bg-red-600 text-red-600 hover:text-white border border-red-200 transition-all shadow-2xs cursor-pointer"
                     title="Delete Inventory Item"
@@ -458,6 +426,25 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           })
         )}
       </div>
+
+      {receivingItem && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <form onSubmit={handleReceive} role="dialog" aria-modal="true" aria-labelledby="receive-title"
+            className="bg-[#FAF8F5] border border-[#B68A4C]/40 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+            <h3 id="receive-title" className="font-serif text-xl font-bold">Receive Stock</h3>
+            <p className="text-sm">{receivingItem.name} — record products that have arrived.</p>
+            <label htmlFor="received-quantity" className="block text-xs font-bold">Quantity received</label>
+            <input id="received-quantity" autoFocus required type="number" min="1" step="1" disabled={pending}
+              value={receivedQuantity} onChange={(e) => setReceivedQuantity(e.target.value)}
+              className="w-full h-11 px-3.5 rounded-xl border border-[#B68A4C]/40 bg-white" />
+            {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
+            <div className="flex justify-end gap-3">
+              <button type="button" disabled={pending} onClick={() => setReceivingItem(null)} className="px-4 py-2 rounded-xl bg-gray-200">Cancel</button>
+              <button type="submit" disabled={pending} className="px-4 py-2 rounded-xl bg-[#8B5E34] text-white disabled:opacity-50">{pending ? 'Saving…' : 'Receive Stock'}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* EDIT / ADD INVENTORY MODAL */}
       {isModalOpen && (
@@ -473,7 +460,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                 </h3>
               </div>
               <button
-                onClick={() => setIsModalOpen(false)}
+                disabled={pending} onClick={() => setIsModalOpen(false)}
                 className="p-1.5 rounded-full text-[#2D2D2D]/60 hover:text-[#2D2D2D] hover:bg-gray-200"
               >
                 <X className="w-5 h-5" />
@@ -482,6 +469,8 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
 
             {/* Modal Form */}
             <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
+              {error && <p role="alert" className="text-red-800">{error}</p>}
+              <fieldset disabled={pending} className="space-y-4">
               
               {/* Product Name */}
               <div>
@@ -521,6 +510,13 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                 </div>
               </div>
 
+              <div>
+                <label htmlFor="purchase-url" className="block font-bold mb-1">Purchase URL (HTTPS)</label>
+                <input id="purchase-url" type="url" value={formData.purchaseUrl}
+                  onChange={(e) => setFormData({ ...formData, purchaseUrl: e.target.value })}
+                  placeholder="https://www.amazon.com/… or another supplier"
+                  className="w-full h-11 bg-white px-3.5 rounded-xl border border-[#B68A4C]/40" />
+              </div>
               {/* Category */}
               <div>
                 <label className="block font-bold text-[#2D2D2D] mb-1">Category</label>
@@ -547,19 +543,23 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   <input
                     type="number"
                     min="0"
+                    step="1"
+                    readOnly={Boolean(editingItem)}
+                    aria-label="Stock count (use Receive Stock for deliveries)"
                     value={formData.stockCount}
-                    onChange={(e) => setFormData({ ...formData, stockCount: Math.max(0, parseInt(e.target.value || '0', 10)) })}
+                    onChange={(e) => setFormData({ ...formData, stockCount: Number(e.target.value) })}
                     className="w-full h-11 bg-white text-[#2D2D2D] text-xs font-bold px-3.5 rounded-xl border border-[#B68A4C]/40 focus:outline-none focus:border-[#B68A4C]"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-[#2D2D2D] mb-1">Reorder Threshold</label>
+                  <label className="block font-bold text-[#2D2D2D] mb-1">Low-stock Threshold</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
+                    step="1"
                     value={formData.reorderLevel}
-                    onChange={(e) => setFormData({ ...formData, reorderLevel: Math.max(1, parseInt(e.target.value || '1', 10)) })}
+                    onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })}
                     className="w-full h-11 bg-white text-[#2D2D2D] text-xs font-bold px-3.5 rounded-xl border border-[#B68A4C]/40 focus:outline-none focus:border-[#B68A4C]"
                   />
                 </div>
@@ -596,7 +596,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#B68A4C]/20">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  disabled={pending} onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-[#2D2D2D] font-bold text-xs transition-all cursor-pointer"
                 >
                   Cancel
@@ -606,10 +606,11 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   className="px-5 py-2.5 rounded-xl bg-[#B68A4C] hover:bg-[#8B5E34] text-[#FAF8F5] font-bold text-xs transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  <span>{editingItem ? 'Save Changes' : 'Add Item to Inventory'}</span>
+                  <span>{pending ? 'Saving…' : editingItem ? 'Save Changes' : 'Add Item to Inventory'}</span>
                 </button>
               </div>
 
+              </fieldset>
             </form>
           </div>
         </div>

@@ -55,6 +55,9 @@ import { RoleLoadingView } from './components/auth/RoleLoadingView';
 import { AccountPendingView } from './components/auth/AccountPendingView';
 import { StaffApprovalManager } from './components/owner/StaffApprovalManager';
 import { useSalonStore } from './hooks/useSalonStore';
+import { db } from './lib/firebase';
+import { isLowStock } from './lib/inventory';
+import { receiveInventoryStock, saveInventoryProduct, deleteInventoryProduct } from './lib/inventoryPersistence';
 import { computeMetricsFromAppointments, EMPTY_METRICS } from './lib/salonStore';
 import {
   canAccessPortal,
@@ -99,6 +102,7 @@ function SalonAppContent() {
           uid: userProfile.uid || userProfile.id,
           role: userProfile.role,
           status: userProfile.status,
+          salonId: userProfile.salonId,
         }
       : null
   );
@@ -387,76 +391,31 @@ function SalonAppContent() {
     }
   };
 
+  const inventoryOwner = () => {
+    if (!firebaseUser || userProfile?.role !== 'owner' || userProfile.status !== 'active') {
+      throw new Error('Only an active owner can manage inventory.');
+    }
+    return { uid: firebaseUser.uid, salonId: userProfile.salonId ?? 'truelengths-main' };
+  };
+
   const handleRestockItem = async (id: string, amount: number) => {
-    const item = inventory.find((i) => i.id === id);
-    if (!item) return;
-    const next = {
-      ...item,
-      stockCount: item.stockCount + amount,
-      status:
-        item.stockCount + amount <= 0
-          ? ('out_of_stock' as const)
-          : item.stockCount + amount <= item.reorderLevel
-            ? ('low_stock' as const)
-            : ('in_stock' as const),
-    };
-    try {
-      await save('inventory', id, { ...next });
-      await addNotification({
-        title: 'Inventory Restocked',
-        message: `Added ${amount} units of ${item.name}.`,
-        type: 'inventory_alert',
-        targetRole: 'owner',
-      });
-    } catch (err: any) {
-      alert(err.message || 'Failed to restock item.');
-    }
+    const owner = inventoryOwner();
+    await receiveInventoryStock(db, owner.uid, owner.salonId, id, amount);
   };
 
-  const handleUpdateInventoryItem = async (updatedItem: InventoryItem) => {
-    try {
-      await save('inventory', updatedItem.id, { ...updatedItem });
-      await addNotification({
-        title: 'Inventory Item Updated',
-        message: `Updated details for ${updatedItem.name}.`,
-        type: 'inventory_alert',
-        targetRole: 'owner',
-      });
-    } catch (err: any) {
-      alert(err.message || 'Failed to update inventory item.');
-    }
+  const handleUpdateInventoryItem = async (item: InventoryItem) => {
+    const owner = inventoryOwner();
+    await saveInventoryProduct(db, owner.uid, owner.salonId, item);
   };
 
-  const handleAddInventoryItem = async (newItem: InventoryItem) => {
-    try {
-      const id = newItem.id || newId('inv');
-      await save('inventory', id, { ...newItem, id });
-      await addNotification({
-        title: 'New Product Added',
-        message: `Added ${newItem.name} to inventory.`,
-        type: 'inventory_alert',
-        targetRole: 'owner',
-      });
-    } catch (err: any) {
-      alert(err.message || 'Failed to add inventory item.');
-    }
+  const handleAddInventoryItem = async (item: InventoryItem) => {
+    const owner = inventoryOwner();
+    await saveInventoryProduct(db, owner.uid, owner.salonId, item, true);
   };
 
   const handleDeleteInventoryItem = async (id: string) => {
-    const item = inventory.find((i) => i.id === id);
-    try {
-      await remove('inventory', id);
-      if (item) {
-        await addNotification({
-          title: 'Product Removed',
-          message: `Removed ${item.name} from inventory.`,
-          type: 'inventory_alert',
-          targetRole: 'owner',
-        });
-      }
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete inventory item.');
-    }
+    const owner = inventoryOwner();
+    await deleteInventoryProduct(db, owner.uid, owner.salonId, id);
   };
 
   const handleAddGalleryItem = async (newItem: Omit<GalleryItem, 'id' | 'likes'>) => {
@@ -598,7 +557,7 @@ function SalonAppContent() {
       commissionRate: 0.5,
     };
 
-  const lowStockCount = inventory.filter((i) => i.stockCount <= i.reorderLevel).length;
+  const lowStockCount = inventory.filter(isLowStock).length;
 
   if (loading) return <RoleLoadingView />;
   if (!firebaseUser || !userProfile) return <WelcomeAuthView />;

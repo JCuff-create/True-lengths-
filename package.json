@@ -10,11 +10,12 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.cjs",
     "lint": "tsc --noEmit",
+    "test:inventory": "node --import tsx --test tests/inventory.test.ts",
     "test:avatar": "node --import tsx --test tests/avatarUpload.test.ts",
     "test:password-reset": "node --import tsx --test tests/passwordReset.test.ts",
     "test:availability": "node --import tsx --test tests/stylistAvailability.test.ts",
     "test:stylist-directory": "node --import tsx --test tests/stylistDirectory.test.ts",
-    "test:rules": "firebase emulators:exec --only firestore --project massive-ridge-298sv \"node tests/firestore.rules.test.mjs\""
+    "test:rules": "firebase emulators:exec --only firestore --project massive-ridge-298sv \"node --import tsx tests/firestore.rules.test.mjs\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

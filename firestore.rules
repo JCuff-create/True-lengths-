@@ -179,9 +179,38 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     // STAFF-ONLY OPERATIONS DATA
     // ------------------------------------------------------------------
+    // Legacy records without salonId belong only to the original salon.
+    function inventorySalon(data) {
+      return data.get('salonId', 'truelengths-main');
+    }
+
+    function ownInventorySalon(data) {
+      return inventorySalon(data) == userDoc().get('salonId', 'truelengths-main');
+    }
+
+    function validInventoryRestocking(data) {
+      return data.stockCount is int && data.stockCount >= 0
+        && (!('lowStockThreshold' in data)
+          || (data.lowStockThreshold is int && data.lowStockThreshold >= 0))
+        && (!('supplierName' in data) || data.supplierName is string)
+        && (!('purchaseUrl' in data) || data.purchaseUrl == ''
+          || (data.purchaseUrl is string
+            && data.purchaseUrl.matches('https://[^/?:#@\\s]+(:[0-9]+)?([/?#][^\\s]*)?')));
+    }
+
     match /inventory/{id} {
-      allow read: if isStaffOrOwner();
-      allow write: if isActiveOwner();
+      allow get: if isStaffOrOwner()
+        && (!exists(/databases/$(database)/documents/inventory/$(id))
+          || ownInventorySalon(resource.data));
+      // Explicit equality makes unscoped collection queries fail closed.
+      allow list: if isStaffOrOwner()
+        && resource.data.salonId == userDoc().get('salonId', 'truelengths-main');
+      allow create: if isActiveOwner() && ownInventorySalon(request.resource.data)
+        && validInventoryRestocking(request.resource.data);
+      allow update: if isActiveOwner() && ownInventorySalon(resource.data)
+        && ownInventorySalon(request.resource.data)
+        && validInventoryRestocking(request.resource.data);
+      allow delete: if isActiveOwner() && ownInventorySalon(resource.data);
     }
 
     match /formulas/{id} {

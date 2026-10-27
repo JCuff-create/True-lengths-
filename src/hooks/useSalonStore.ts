@@ -1,3 +1,4 @@
+import { where } from 'firebase/firestore';
 import { useEffect, useState, useCallback } from 'react';
 import {
   Appointment,
@@ -30,6 +31,7 @@ export type SalonActor = {
   uid: string;
   role: UserRole;
   status?: UserStatus;
+  salonId?: string;
 };
 
 /**
@@ -143,7 +145,7 @@ export function useSalonStore(actor: SalonActor | null) {
         subscribeSalonCollection<InventoryItem>(SALON_COLLECTIONS.inventory, (items) => {
           setInventory(items);
           done();
-        }),
+        }, undefined, [where('salonId', '==', actor.salonId ?? 'truelengths-main')]),
         subscribeSalonCollection<HairFormula>(SALON_COLLECTIONS.formulas, (items) => {
           setFormulas(items);
           done();
@@ -160,7 +162,7 @@ export function useSalonStore(actor: SalonActor | null) {
       window.clearTimeout(t);
       unsubs.forEach((u) => u());
     };
-  }, [actor?.uid, actor?.role, actor?.status]);
+  }, [actor?.uid, actor?.role, actor?.status, actor?.salonId]);
 
   const save = useCallback(
     async (collectionName: keyof typeof SALON_COLLECTIONS, id: string, data: Record<string, unknown>) => {
