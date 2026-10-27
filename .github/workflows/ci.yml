@@ -26,6 +26,9 @@ jobs:
       - name: Lint (TypeScript)
         run: npm run lint
 
+      - name: AI assistant tests
+        run: npm run test:ai
+
       - name: Build
         run: npm run build
 

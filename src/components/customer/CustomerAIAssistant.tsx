@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { requestAssistant, AssistantRequestError } from '../../lib/assistantClient';
 import { ChatMessage } from '../../types';
 import { Sparkles, Send, Bot, RefreshCw, ArrowRight } from 'lucide-react';
 
@@ -19,6 +20,8 @@ export const CustomerAIAssistant: React.FC = () => {
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const requestInFlight = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const defaultPrompts = [
@@ -41,7 +44,9 @@ export const CustomerAIAssistant: React.FC = () => {
 
   const handleSendMessage = async (promptToSend?: string) => {
     const text = promptToSend || inputText.trim();
-    if (!text || isLoading) return;
+    if (!text || requestInFlight.current) return;
+    requestInFlight.current = true;
+    setChatError(null);
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
@@ -55,46 +60,21 @@ export const CustomerAIAssistant: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/ai/customer-assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text, history: messages }),
-      });
-
-      const data = await response.json();
-      const replyText = data.text || "Thank you for reaching out to True Lengths! How else can I assist your natural hair & melanin skin care journey?";
-      const suggestions = (data.suggestions && data.suggestions.length > 0)
-        ? data.suggestions
-        : [
-            "How do I maintain my silk press in humidity?",
-            "What products should I use for scalp hydration?",
-            "Book a Melanin Glow Facial for hyperpigmentation"
-          ];
-
+      const data = await requestAssistant('customer', { prompt: text, history: messages });
       const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         sender: 'assistant',
-        text: replyText,
+        text: data.text,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        actionablePrompts: suggestions,
+        actionablePrompts: data.suggestions,
       };
-
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
-      console.error('Error fetching AI response:', err);
-      const fallbackMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
-        sender: 'assistant',
-        text: "I'm available to answer your questions on silk press care, 4C hair hydration, knotless braids, loc retwists, and dark spot facials!",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        actionablePrompts: [
-          "Silk Press Anti-Humidity Routine",
-          "Knotless Braid Scalp Maintenance",
-          "Book Melanin Dark Spot Facial"
-        ],
-      };
-      setMessages((prev) => [...prev, fallbackMsg]);
+      console.error('Chat request failed:', err instanceof AssistantRequestError ? err.code : 'UNKNOWN');
+      setChatError(err instanceof Error ? err.message : 'The chat service is unavailable. Please try again.');
+      setInputText(text);
     } finally {
+      requestInFlight.current = false;
       setIsLoading(false);
     }
   };
@@ -119,7 +99,9 @@ export const CustomerAIAssistant: React.FC = () => {
         </div>
 
         <button
+          disabled={isLoading}
           onClick={() => {
+            setChatError(null);
             setMessages([
               {
                 id: `m-${Date.now()}`,
@@ -140,6 +122,12 @@ export const CustomerAIAssistant: React.FC = () => {
           <RefreshCw className="w-3.5 h-3.5" /> Reset
         </button>
       </div>
+
+      {chatError && (
+        <p role="alert" className="text-xs text-red-900 bg-red-50 border-b border-red-200 p-3 shrink-0">
+          {chatError} Your question is ready to resend below.
+        </p>
+      )}
 
       {/* Messages Stream */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -238,6 +226,7 @@ export const CustomerAIAssistant: React.FC = () => {
           className="flex-1 bg-[#FAF8F5] border border-[#B68A4C]/30 rounded-full px-4 py-2 text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#B68A4C]"
         />
         <button
+          aria-label="Send message"
           onClick={() => handleSendMessage()}
           disabled={!inputText.trim() || isLoading}
           className="w-9 h-9 rounded-full bg-[#8B5E34] hover:bg-[#B68A4C] disabled:opacity-50 text-white flex items-center justify-center transition-all shrink-0 cursor-pointer"

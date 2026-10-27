@@ -20,4 +20,4 @@ COPY --from=build /app/dist ./dist
 COPY firebase-applet-config.json metadata.json ./
 EXPOSE 8080
 USER node
-CMD ["node", "dist/server.cjs"]
+CMD ["node", "--use-env-proxy", "dist/server.cjs"]

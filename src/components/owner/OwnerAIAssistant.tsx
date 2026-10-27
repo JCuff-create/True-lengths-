@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { requestAssistant, AssistantRequestError } from '../../lib/assistantClient';
 import { ChatMessage, RevenueMetric } from '../../types';
 import { Sparkles, Send, Crown, Bot, ArrowRight, MessageSquare, RefreshCw } from 'lucide-react';
 
@@ -24,6 +25,8 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const requestInFlight = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const ownerPrompts = [
@@ -43,40 +46,11 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
     scrollToBottom();
   }, [messages, isLoading]);
 
-  // Helper to build contextual fallback suggestions if API doesn't return any
-  const getFallbackSuggestions = (text: string): string[] => {
-    const lower = text.toLowerCase();
-    if (lower.includes('inactive') || lower.includes('8 week') || lower.includes('client')) {
-      return [
-        "Draft automated SMS campaign for 14 inactive clients",
-        "Offer 15% VIP discount coupon to re-engage",
-        "Show client retention rate breakdown by stylist"
-      ];
-    }
-    if (lower.includes('stylist') || lower.includes('earning') || lower.includes('carolyn') || lower.includes('tina')) {
-      return [
-        "Compare Carolyn R. vs Tina M. revenue contribution",
-        "Set monthly target incentives for stylists",
-        "View average appointment duration per stylist"
-      ];
-    }
-    if (lower.includes('inventory') || lower.includes('stock') || lower.includes('serum') || lower.includes('backbar')) {
-      return [
-        "Auto-reorder Silk Thermal Protectant Serum now",
-        "Which backbar products have highest markup?",
-        "View forecasted stockout dates for next week"
-      ];
-    }
-    return [
-      "How can we increase client retention to 75%?",
-      "Which days of the week have lowest booking density?",
-      "Draft Instagram promotion for Friday Silk Press openings"
-    ];
-  };
-
   const handleSendMessage = async (promptToSend?: string) => {
     const text = promptToSend || inputText.trim();
-    if (!text || isLoading) return;
+    if (!text || requestInFlight.current) return;
+    requestInFlight.current = true;
+    setChatError(null);
 
     const userMsg: ChatMessage = {
       id: `ou-${Date.now()}`,
@@ -90,38 +64,21 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/ai/owner-assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text, businessData: metrics }),
-      });
-
-      const data = await response.json();
-      const replyText = data.text || "I have analyzed your salon telemetry data.";
-      const suggestions = (data.suggestions && data.suggestions.length > 0)
-        ? data.suggestions
-        : getFallbackSuggestions(text);
-
+      const data = await requestAssistant('owner', { prompt: text, history: messages, businessData: metrics });
       const assistantMsg: ChatMessage = {
         id: `oa-${Date.now()}`,
         sender: 'assistant',
-        text: replyText,
+        text: data.text,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        actionablePrompts: suggestions,
+        actionablePrompts: data.suggestions,
       };
-
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
-      console.error(err);
-      const fallbackMsg: ChatMessage = {
-        id: `oa-${Date.now()}`,
-        sender: 'assistant',
-        text: "I could not reach the business advisor right now. Please try again in a moment. Live metrics shown above still reflect your Firestore data.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        actionablePrompts: getFallbackSuggestions(text),
-      };
-      setMessages((prev) => [...prev, fallbackMsg]);
+      console.error('Chat request failed:', err instanceof AssistantRequestError ? err.code : 'UNKNOWN');
+      setChatError(err instanceof Error ? err.message : 'The chat service is unavailable. Please try again.');
+      setInputText(text);
     } finally {
+      requestInFlight.current = false;
       setIsLoading(false);
     }
   };
@@ -144,7 +101,9 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
         </div>
 
         <button
+          disabled={isLoading}
           onClick={() => {
+            setChatError(null);
             setMessages([
               {
                 id: `om-${Date.now()}`,
@@ -165,6 +124,12 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
           <RefreshCw className="w-3.5 h-3.5" /> Reset Chat
         </button>
       </div>
+
+      {chatError && (
+        <p role="alert" className="text-xs text-red-900 bg-red-50 border-b border-red-200 p-3 shrink-0">
+          {chatError} Your question is ready to resend below.
+        </p>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -270,6 +235,7 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
           className="flex-1 bg-[#3D3D3D] border border-[#B68A4C]/30 rounded-full px-4 py-2.5 text-xs text-[#FAF8F5] focus:outline-none focus:ring-2 focus:ring-[#B68A4C]"
         />
         <button
+          aria-label="Send message"
           onClick={() => handleSendMessage()}
           disabled={!inputText.trim() || isLoading}
           className="w-10 h-10 rounded-full bg-[#B68A4C] hover:bg-[#8B5E34] disabled:opacity-50 text-[#FAF8F5] flex items-center justify-center transition-all shrink-0 cursor-pointer"
