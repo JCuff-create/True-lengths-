@@ -4,9 +4,10 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  runTransaction,
+  serverTimestamp,
   query,
   where,
-  serverTimestamp,
   type QueryConstraint,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -80,6 +81,22 @@ export async function upsertSalonDoc(
     },
     { merge: true }
   );
+}
+
+export async function transactInventoryStock(
+  itemId: string,
+  buildUpdate: (record: Record<string, unknown> | null) => { stockCount: number; status: string }
+): Promise<void> {
+  const ref = doc(db, SALON_COLLECTIONS.inventory, itemId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    const patch = buildUpdate(snap.exists() ? (snap.data() as Record<string, unknown>) : null);
+    transaction.update(ref, {
+      stockCount: patch.stockCount,
+      status: patch.status,
+      updatedAt: serverTimestamp(),
+    });
+  });
 }
 
 export async function deleteSalonDoc(collectionName: SalonCollection, id: string): Promise<void> {

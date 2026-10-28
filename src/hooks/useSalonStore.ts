@@ -26,6 +26,7 @@ import {
   notificationConstraintsForRole,
 } from '../lib/salonStore';
 import { buildBookableStylistDirectory } from '../lib/stylistDirectory';
+import { inventoryVisibleToRole } from '../lib/inventoryRestock';
 
 export type SalonActor = {
   uid: string;
@@ -143,7 +144,7 @@ export function useSalonStore(actor: SalonActor | null) {
     if (isStaff) {
       unsubs.push(
         subscribeSalonCollection<InventoryItem>(SALON_COLLECTIONS.inventory, (items) => {
-          setInventory(items);
+          setInventory(inventoryVisibleToRole(items, actor.role));
           done();
         }, undefined, [where('salonId', '==', actor.salonId ?? 'truelengths-main')]),
         subscribeSalonCollection<HairFormula>(SALON_COLLECTIONS.formulas, (items) => {

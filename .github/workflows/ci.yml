@@ -29,6 +29,9 @@ jobs:
       - name: AI assistant tests
         run: npm run test:ai
 
+      - name: Inventory tests
+        run: npm run test:inventory && npm run test:inventory-restock
+
       - name: Build
         run: npm run build
 

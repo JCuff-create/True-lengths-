@@ -533,6 +533,26 @@ async function main() {
   await check('owner can manage inventory', async () => {
     await assertSucceeds(updateDoc(doc(owner(), 'inventory/inv1'), { stockCount: 10 }));
   });
+  await check('legacy inventory without a purchase link stays hidden from customers', async () => {
+    await assertSucceeds(getDoc(doc(stylist(), 'inventory/inv1')));
+    await assertFails(getDoc(doc(customer(), 'inventory/inv1')));
+  });
+  await check('owner can store an https purchase link', async () => {
+    await assertSucceeds(
+      updateDoc(doc(owner(), 'inventory/inv1'), {
+        purchaseUrl: 'https://www.amazon.com/dp/example',
+        supplier: 'Amazon',
+      })
+    );
+  });
+  await check('stylist cannot store a purchase link or receive stock', async () => {
+    await assertFails(
+      updateDoc(doc(stylist(), 'inventory/inv1'), {
+        purchaseUrl: 'https://supplier.example/serum',
+        stockCount: 20,
+      })
+    );
+  });
   await check('owner can manage salon profile', async () => {
     await assertSucceeds(
       updateDoc(doc(owner(), 'salons/truelengths-main'), { name: 'True Lengths Salon' })
