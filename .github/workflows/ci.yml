@@ -32,6 +32,9 @@ jobs:
       - name: Inventory tests
         run: npm run test:inventory && npm run test:inventory-restock
 
+      - name: Marketing tests
+        run: npm run test:marketing
+
       - name: Build
         run: npm run build
 

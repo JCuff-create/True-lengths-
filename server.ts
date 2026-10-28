@@ -11,6 +11,7 @@ import { FieldValue, getFirestore as getAdminFirestore } from 'firebase-admin/fi
 import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import firebaseConfigJson from './firebase-applet-config.json';
 import { canUploadAvatar } from './src/server/avatarAuthorization';
+import { createMarketingHandler } from './src/server/marketing';
 
 // Runtime-injected values take precedence; Cursor/local development can use either file.
 loadEnv({ path: ['.env.local', '.env'], quiet: true });
@@ -36,6 +37,12 @@ const adminDb = firebaseConfigJson.firestoreDatabaseId
   ? getAdminFirestore(adminApp, firebaseConfigJson.firestoreDatabaseId)
   : getAdminFirestore(adminApp);
 const adminBucket = getAdminStorage(adminApp).bucket(firebaseConfigJson.storageBucket);
+
+for (const action of ['preview', 'send'] as const) {
+  app.post(`/api/marketing/${action}`, createMarketingHandler({
+    db: adminDb, verifyToken: (token) => adminAuth.verifyIdToken(token, true), preview: action === 'preview',
+  }));
+}
 
 function bearerToken(authorizationHeader?: string) {
   if (!authorizationHeader?.startsWith('Bearer ')) return null;

@@ -1,4 +1,5 @@
-import { where } from 'firebase/firestore';
+import { collection, onSnapshot, where } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useEffect, useState, useCallback } from 'react';
 import {
   Appointment,
@@ -84,7 +85,13 @@ export function useSalonStore(actor: SalonActor | null) {
       setDataLoading(false);
       return;
     }
-    let pending = isStaff ? 9 : 7;
+    let pending = isStaff ? 10 : 8;
+    let sharedNotifications: AppNotification[] = [];
+    let inboxNotifications: AppNotification[] = [];
+    setNotifications([]);
+    const publishNotifications = () => setNotifications(
+      [...sharedNotifications, ...inboxNotifications].sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+    );
     const done = () => {
       pending -= 1;
       if (pending <= 0) setDataLoading(false);
@@ -131,14 +138,18 @@ export function useSalonStore(actor: SalonActor | null) {
       subscribeSalonCollection<AppNotification>(
         SALON_COLLECTIONS.notifications,
         (items) => {
-          setNotifications(
-            items.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
-          );
+          sharedNotifications = items;
+          publishNotifications();
           done();
         },
         undefined,
         notificationConstraintsForRole(actor.role)
       ),
+      onSnapshot(collection(db, 'users', actor.uid, 'notifications'), (snapshot) => {
+        inboxNotifications = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id, recipientUid: actor.uid } as AppNotification));
+        publishNotifications();
+        done();
+      }, () => { setWriteError('Your notification inbox could not load. Please refresh or contact salon support.'); done(); }),
     ];
 
     if (isStaff) {

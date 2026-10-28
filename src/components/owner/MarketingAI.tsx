@@ -1,9 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { auth } from '../../lib/firebase';
+import { requestAssistant } from '../../lib/assistantClient';
+import { MARKETING_SEGMENTS, requestMarketing, type MarketingSegment } from '../../lib/marketing';
 import { Sparkles, Copy, Check, Send, Instagram, MessageSquare, RefreshCw, Upload, Camera, Image as ImageIcon, X, Smartphone, Mail } from 'lucide-react';
 
 export const MarketingAI: React.FC = () => {
-  const [segment, setSegment] = useState<string>('Inactive Clients (8+ Weeks)');
-  const [channel, setChannel] = useState<'instagram' | 'sms' | 'email'>('instagram');
+  const [segment, setSegment] = useState<MarketingSegment>('Inactive Clients (8+ Weeks)');
+  const [channel, setChannel] = useState<'in-app' | 'instagram' | 'sms' | 'email'>('in-app');
   const [promoGoal, setPromoGoal] = useState<string>('Fill Friday Silk Press & Balayage Openings');
   const [marketingImage, setMarketingImage] = useState<string | null>(
     'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1000&q=80'
@@ -21,6 +24,16 @@ It’s been a minute since your last silk press & steam treatment! Give your cro
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deliveryStatus, setDeliveryStatus] = useState<string | null>(null);
+  const [recipientCount, setRecipientCount] = useState<number | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [campaignId, setCampaignId] = useState(() => crypto.randomUUID());
+  useEffect(() => {
+    setRecipientCount(null); setDeliveryStatus(null); setSent(false); setError(null);
+    setCampaignId(crypto.randomUUID());
+  }, [segment, channel, promoGoal, generatedContent]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +78,7 @@ It’s been a minute since your last silk press & steam treatment! Give your cro
 
   const handleGenerate = async () => {
     setIsGenerating(true);
+    setError(null);
     try {
       const prompt = `Write a luxury, compelling ${channel} promotional copy for a high-end salon named True Lengths.
 Target Audience: ${segment}
@@ -72,27 +86,41 @@ Campaign Goal: ${promoGoal}
 Tone: Warm, elegant, high-converting, professional.
 Include call to action to book on the True Lengths app.`;
 
-      const response = await fetch('/api/ai/owner-assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-
-      const data = await response.json();
-      if (data.text) {
-        setGeneratedContent(data.text);
-      }
+      const data = await requestAssistant('owner', { prompt, history: [] });
+      setGeneratedContent(data.text);
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'AI copy could not be generated. Your draft was kept.');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(generatedContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedContent);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { setError('Copy failed. Select and copy the draft text manually.'); }
+  };
+
+  const handleBroadcast = async () => {
+    if (isSending || isGenerating || sent || channel !== 'in-app') return;
+    setIsSending(true); setError(null);
+    try {
+      if (!auth.currentUser) throw new Error('Sign in as the salon owner to send a campaign.');
+      const token = await auth.currentUser.getIdToken();
+      const action = recipientCount === null ? 'preview' : 'send';
+      const result = await requestMarketing(action, { campaignId, segment, title: promoGoal, message: generatedContent }, token);
+      if (action === 'preview') {
+        setRecipientCount(result.delivered);
+        if (!result.delivered) setError('No eligible customers match this segment. Nothing was sent.');
+      } else {
+        setSent(true);
+        setDeliveryStatus(`Delivered to ${result.delivered} customer notification inbox${result.delivered === 1 ? '' : 'es'}. Customers can read it when they open the app.`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delivery was not confirmed. Retry without editing to avoid duplicates.');
+    } finally { setIsSending(false); }
   };
 
   const PRESET_MARKETING_PHOTOS = [
@@ -123,23 +151,22 @@ Include call to action to book on the True Lengths app.`;
             <label className="block text-xs font-bold text-[#2D2D2D] mb-1.5">Target Client Segment</label>
             <select
               value={segment}
-              onChange={(e) => setSegment(e.target.value)}
+              onChange={(e) => setSegment(e.target.value as MarketingSegment)}
+              disabled={isSending}
               className="w-full bg-[#F4F1EC] border border-[#B68A4C]/30 rounded-xl px-3.5 py-2.5 text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
             >
-              <option value="Inactive Clients (8+ Weeks)">Inactive Clients (8+ Weeks)</option>
-              <option value="Silk Press Enthusiasts">Silk Press Enthusiasts</option>
-              <option value="Custom Color & Balayage Clients">Custom Color & Balayage Clients</option>
-              <option value="VIP Gold Members">VIP Gold Members</option>
+              {MARKETING_SEGMENTS.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </div>
 
           <div>
             <label className="block text-xs font-bold text-[#2D2D2D] mb-1.5">Marketing Channel</label>
             <div className="flex bg-[#F4F1EC] p-1 rounded-xl border border-[#B68A4C]/20 text-xs">
-              {(['instagram', 'sms', 'email'] as const).map((ch) => (
+              {(['in-app', 'instagram', 'sms', 'email'] as const).map((ch) => (
                 <button
                   key={ch}
                   type="button"
+                  disabled={isSending}
                   onClick={() => setChannel(ch)}
                   className={`flex-1 py-2 font-bold rounded-lg capitalize transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     channel === ch ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-xs' : 'text-[#2D2D2D]/70 hover:text-[#2D2D2D]'
@@ -148,7 +175,8 @@ Include call to action to book on the True Lengths app.`;
                   {ch === 'instagram' && <Instagram className="w-3.5 h-3.5" />}
                   {ch === 'sms' && <Smartphone className="w-3.5 h-3.5" />}
                   {ch === 'email' && <Mail className="w-3.5 h-3.5" />}
-                  <span>{ch}</span>
+                  {ch === 'in-app' && <MessageSquare className="w-3.5 h-3.5" />}
+                  <span>{ch === 'in-app' ? 'App inbox' : ch}</span>
                 </button>
               ))}
             </div>
@@ -160,6 +188,8 @@ Include call to action to book on the True Lengths app.`;
           <label className="block text-xs font-bold text-[#2D2D2D] mb-1.5">Campaign Goal / Offer</label>
           <input
             type="text"
+            maxLength={120}
+            disabled={isSending}
             value={promoGoal}
             onChange={(e) => setPromoGoal(e.target.value)}
             placeholder="E.g., 15% off midweek Silk Press or Fill Friday slots"
@@ -239,7 +269,7 @@ Include call to action to book on the True Lengths app.`;
         {/* Generate Action Button */}
         <button
           onClick={handleGenerate}
-          disabled={isGenerating}
+          disabled={isGenerating || isSending}
           className="w-full bg-[#8B5E34] hover:bg-[#7A5A3A] text-[#FAF8F5] font-bold py-3.5 rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
         >
           {isGenerating ? (
@@ -301,23 +331,32 @@ Include call to action to book on the True Lengths app.`;
             )}
 
             {/* AI Copy text */}
-            <p className="text-xs leading-relaxed whitespace-pre-wrap font-sans text-[#FAF8F5]/90">
-              {generatedContent}
-            </p>
+            <label className="block text-xs space-y-2">
+              <span>Campaign message</span>
+              <textarea value={generatedContent} onChange={(event) => setGeneratedContent(event.target.value)}
+                maxLength={4000} disabled={isSending || isGenerating} rows={9}
+                className="w-full rounded-xl bg-[#2D2D2D] p-3 text-xs leading-relaxed text-[#FAF8F5]" />
+            </label>
           </div>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
           <p className="text-[11px] text-[#FAF8F5]/60">
-            Preview reflects what target clients will receive on {channel}.
+            {channel === 'in-app'
+              ? 'Message text is delivered to customer app inboxes. Photos remain in this draft; no device push is sent.'
+              : 'Draft only. Copy this content to your connected publishing or messaging service.'}
           </p>
           <button
-            onClick={() => alert(`Campaign dispatched to ${segment} via True Lengths Push & SMS Gateway!`)}
-            className="w-full sm:w-auto bg-[#B68A4C] hover:bg-[#8B5E34] text-[#FAF8F5] font-bold text-xs px-6 py-3 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+            onClick={handleBroadcast}
+            disabled={channel !== 'in-app' || isSending || isGenerating || sent || recipientCount === 0 || !generatedContent.trim() || !promoGoal.trim()}
+            className="w-full sm:w-auto bg-[#B68A4C] hover:bg-[#8B5E34] disabled:opacity-50 text-[#FAF8F5] font-bold text-xs px-6 py-3 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <Send className="w-3.5 h-3.5" /> Launch Broadcast to {segment}
+            <Send className="w-3.5 h-3.5" /> {isSending ? 'Checking delivery…' : sent ? 'Delivered' : channel !== 'in-app' ? 'Copy draft to send externally' : recipientCount === null ? 'Preview customer audience' : `Send to ${recipientCount} customer inbox${recipientCount === 1 ? '' : 'es'}`}
           </button>
         </div>
+        {recipientCount !== null && !sent && <p className="text-xs">{recipientCount} eligible customers match this segment. Confirm to send the message to their app inboxes.</p>}
+        {error && <p role="alert" className="text-sm text-rose-200">{error}</p>}
+        {deliveryStatus && <p role="status" className="text-sm text-emerald-200">{deliveryStatus}</p>}
       </div>
 
     </div>

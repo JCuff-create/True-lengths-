@@ -31,6 +31,7 @@ import { OwnerDashboard } from './components/owner/OwnerDashboard';
 import { OwnerCalendar } from './components/owner/OwnerCalendar';
 import { InventoryManager } from './components/owner/InventoryManager';
 import { MarketingAI } from './components/owner/MarketingAI';
+import { markNotification, clearNotification } from './lib/notificationInbox';
 import { OwnerAIAssistant } from './components/owner/OwnerAIAssistant';
 import { PortfolioManager } from './components/owner/PortfolioManager';
 import { ServiceCatalogManager } from './components/owner/ServiceCatalogManager';
@@ -194,7 +195,7 @@ function SalonAppContent() {
       await Promise.all(
         notifications
           .filter((n) => !n.read)
-          .map((n) => save('notifications', n.id, { ...n, read: true }))
+          .map((n) => markNotification(n, true))
       );
     } catch (err: any) {
       alert(err.message || 'Failed to update notifications.');
@@ -203,7 +204,7 @@ function SalonAppContent() {
 
   const handleClearAllNotifications = async () => {
     try {
-      await Promise.all(notifications.map((n) => remove('notifications', n.id)));
+      await Promise.all(notifications.map((notification) => clearNotification(notification)));
     } catch (err: any) {
       alert(err.message || 'Failed to clear notifications.');
     }
@@ -213,7 +214,7 @@ function SalonAppContent() {
     const n = notifications.find((x) => x.id === id);
     if (!n) return;
     try {
-      await save('notifications', id, { ...n, read: !n.read });
+      await markNotification(n, !n.read);
     } catch (err: any) {
       alert(err.message || 'Failed to update notification.');
     }

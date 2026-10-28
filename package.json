@@ -17,7 +17,8 @@
     "test:availability": "node --import tsx --test tests/stylistAvailability.test.ts",
     "test:stylist-directory": "node --import tsx --test tests/stylistDirectory.test.ts",
     "test:rules": "firebase emulators:exec --only firestore --project massive-ridge-298sv \"node --import tsx tests/firestore.rules.test.mjs\"",
-    "test:inventory-restock": "node --import tsx --test tests/inventoryRestock.test.ts"
+    "test:inventory-restock": "node --import tsx --test tests/inventoryRestock.test.ts",
+    "test:marketing": "node --import tsx --test tests/marketing.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -208,6 +208,7 @@ export interface ChatMessage {
 }
 
 export interface AppNotification {
+  recipientUid?: string;
   id: string;
   title: string;
   message: string;
