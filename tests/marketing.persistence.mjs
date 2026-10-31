@@ -5,7 +5,7 @@ import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { createMarketingHandler } from '../src/server/marketing.ts';
+import { createMarketingHandler, createMarketingCopyHandler } from '../src/server/marketing.ts';
 import { markNotification, clearNotification } from '../src/lib/notificationInbox.ts';
 
 export async function runMarketingChecks(testEnv, check) {
@@ -31,6 +31,11 @@ export async function runMarketingChecks(testEnv, check) {
   };
   const app = express();
   app.use(express.json());
+  const copyRequests = [];
+  const generate = async (request) => { copyRequests.push(request); return { text: 'Explore our services and book your next visit.\nSUGGESTED_FOLLOWUPS: ["ignore"]' }; };
+  app.post('/api/marketing/copy', createMarketingCopyHandler({ db, verifyToken, model: 'fixture-model', generate }));
+  app.post('/api/marketing/copy-unconfigured', createMarketingCopyHandler({ db, verifyToken, model: 'fixture-model', generate: null }));
+  app.post('/api/marketing/copy-failed', createMarketingCopyHandler({ db, verifyToken, model: 'fixture-model', generate: async () => { throw Object.assign(new Error('private-provider-error'), { status: 429 }); } }));
   for (const action of ['preview', 'send']) app.post(`/api/marketing/${action}`, createMarketingHandler({ db, verifyToken, preview: action === 'preview' }));
   const failingStore = new Proxy(db, { get(target, key) {
     if (key === 'runTransaction') return async () => { throw new Error('Emulated storage failure'); };
@@ -49,6 +54,33 @@ export async function runMarketingChecks(testEnv, check) {
   const inbox = collection(customer, 'users/mkt-old/notifications');
   const target = doc(customer, `users/mkt-old/notifications/${campaign.campaignId}`);
   try {
+    await check('marketing copy generation requires an active owner and validates the channel and goal', async () => {
+      const body = { segment: 'All Customers', channel: 'in-app', title: 'Book a visit' };
+      for (const [token, status] of [[null, 401], ['invalid', 401], ['mkt-old', 403]]) {
+        assert.equal((await post('copy', body, token)).status, status);
+      }
+      for (const patch of [{ channel: 'invalid' }, { title: '' }, { title: 'x'.repeat(121) }, { segment: 'unknown' }]) {
+        assert.equal((await post('copy', { ...body, ...patch })).status, 400);
+      }
+      assert.equal(copyRequests.length, 0);
+    });
+    await check('marketing AI returns campaign copy rather than advisor follow-ups, without sending it', async () => {
+      const body = { segment: 'All Customers', channel: 'sms', title: 'Book a visit' };
+      const response = await post('copy', body);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { message: 'Explore our services and book your next visit.' });
+      assert.equal(copyRequests[0].model, 'fixture-model');
+      assert.deepEqual(JSON.parse(copyRequests[0].contents), { audience: 'All Customers', channel: 'sms', campaignGoal: 'Book a visit' });
+      assert(copyRequests[0].config.systemInstruction.includes('Do not invent discounts'));
+      assert.equal((await getDocs(inbox)).size, 0);
+    });
+    await check('marketing copy failures report useful errors without leaking provider messages', async () => {
+      const body = { segment: 'All Customers', channel: 'in-app', title: 'Book a visit' };
+      assert.equal((await post('copy-unconfigured', body)).status, 503);
+      const failed = await post('copy-failed', body);
+      assert.equal(failed.status, 429);
+      assert(!(await failed.text()).includes('private-provider-error'));
+    });
     await check('marketing denies unauthenticated, invalid-token and non-owner sends', async () => {
       for (const [token, status] of [[null, 401], ['invalid', 401], ['mkt-old', 403], ['mkt-disabled', 403]]) {
         assert.equal((await post('send', campaign, token)).status, status);

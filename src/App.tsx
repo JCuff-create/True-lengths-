@@ -777,7 +777,7 @@ function SalonAppContent() {
               />
             )}
 
-            {currentView === 'marketing' && <MarketingAI />}
+            {currentView === 'marketing' && <MarketingAI key={firebaseUser.uid} />}
 
             {currentView === 'owner_ai' && <OwnerAIAssistant metrics={metrics} />}
           </>

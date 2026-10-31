@@ -11,7 +11,7 @@ import { FieldValue, getFirestore as getAdminFirestore } from 'firebase-admin/fi
 import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import firebaseConfigJson from './firebase-applet-config.json';
 import { canUploadAvatar } from './src/server/avatarAuthorization';
-import { createMarketingHandler } from './src/server/marketing';
+import { createMarketingHandler, createMarketingCopyHandler } from './src/server/marketing';
 
 // Runtime-injected values take precedence; Cursor/local development can use either file.
 loadEnv({ path: ['.env.local', '.env'], quiet: true });
@@ -204,6 +204,9 @@ const assistantOptions = {
 };
 app.post('/api/ai/customer-assistant', createAssistantHandler('customer', assistantOptions));
 app.post('/api/ai/owner-assistant', createAssistantHandler('owner', assistantOptions));
+app.post('/api/marketing/copy', createMarketingCopyHandler({
+  db: adminDb, verifyToken: (token) => adminAuth.verifyIdToken(token, true), ...assistantOptions,
+}));
 
 // Healthcheck API
 app.get('/api/health', (req, res) => {

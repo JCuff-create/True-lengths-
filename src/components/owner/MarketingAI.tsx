@@ -1,60 +1,62 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { auth } from '../../lib/firebase';
-import { requestAssistant } from '../../lib/assistantClient';
-import { MARKETING_SEGMENTS, requestMarketing, type MarketingSegment } from '../../lib/marketing';
-import { Sparkles, Copy, Check, Send, Instagram, MessageSquare, RefreshCw, Upload, Camera, Image as ImageIcon, X, Smartphone, Mail } from 'lucide-react';
+import { MARKETING_SEGMENTS, MARKETING_TEMPLATES, requestMarketing, requestMarketingCopy, createMarketingDraft,
+  loadMarketingDraft, saveMarketingDraft, marketingDraftText, type MarketingDraft, type MarketingSegment } from '../../lib/marketing';
+import { Sparkles, Copy, Check, Send, Instagram, MessageSquare, RefreshCw, Upload, Camera, X, Smartphone, Mail, Download, Plus } from 'lucide-react';
 
 export const MarketingAI: React.FC = () => {
-  const [segment, setSegment] = useState<MarketingSegment>('Inactive Clients (8+ Weeks)');
-  const [channel, setChannel] = useState<'in-app' | 'instagram' | 'sms' | 'email'>('in-app');
-  const [promoGoal, setPromoGoal] = useState<string>('Fill Friday Silk Press & Balayage Openings');
-  const [marketingImage, setMarketingImage] = useState<string | null>(
-    'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1000&q=80'
-  );
-  const [generatedContent, setGeneratedContent] = useState<string>(
-    `✨ Fall in love with your natural hair again at True Lengths.
-
-It’s been a minute since your last silk press & steam treatment! Give your crown the luxury nourishment it deserves with our signature hydrating treatment and thermal heat protection.
-
-🗓️ Limited Friday appointments available with Master Stylist Carolyn & Tina.
-✨ Tap the link in bio to secure your spot today.
-
-#TrueLengths #LuxuryHairCare #SilkPress #Balayage #HealthyHair`
-  );
+  const ownerUid = auth.currentUser?.uid || '';
+  const [draft, setDraft] = useState<MarketingDraft>(() => {
+    try { return (ownerUid && loadMarketingDraft(window.localStorage, ownerUid)) || createMarketingDraft(); }
+    catch { return createMarketingDraft(); }
+  });
+  const { segment, channel, title: promoGoal, message: generatedContent, campaignId } = draft;
+  const [marketingImage, setMarketingImage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [deliveryStatus, setDeliveryStatus] = useState<string | null>(null);
   const [recipientCount, setRecipientCount] = useState<number | null>(null);
   const [isSending, setIsSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [campaignId, setCampaignId] = useState(() => crypto.randomUUID());
+  const [saved, setSaved] = useState(false);
+  const sent = draft.delivered !== null;
+  const busy = isSending || isGenerating;
+  const deliveryStatus = sent ? `Delivered to ${draft.delivered} customer notification inbox${draft.delivered === 1 ? '' : 'es'}. Customers can read it when they open the app.` : null;
   useEffect(() => {
-    setRecipientCount(null); setDeliveryStatus(null); setSent(false); setError(null);
-    setCampaignId(crypto.randomUUID());
-  }, [segment, channel, promoGoal, generatedContent]);
+    try { setSaved(Boolean(ownerUid) && saveMarketingDraft(window.localStorage, ownerUid, draft)); }
+    catch { setSaved(false); }
+    setCopied(false);
+  }, [draft, ownerUid]);
+  const editDraft = (patch: Partial<Pick<MarketingDraft, 'segment' | 'channel' | 'title' | 'message'>>) => {
+    setDraft((current) => ({ ...current, ...patch, campaignId: crypto.randomUUID(), delivered: null }));
+    setRecipientCount(null); setError(null);
+  };
+  const newCampaign = () => { setDraft(createMarketingDraft()); setRecipientCount(null); setMarketingImage(null); setError(null); };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle uploading file from Camera Roll / Device
   const handleFileUpload = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file (JPEG, PNG, WEBP, etc.)');
+    if (busy) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size === 0 || file.size > 5 * 1024 * 1024) {
+      setError('Choose a JPG, PNG, or WEBP image up to 5 MB.');
       return;
     }
+    setError(null);
     const reader = new FileReader();
     reader.onload = (e) => {
-      if (e.target?.result) {
-        setMarketingImage(e.target.result as string);
+      if (typeof e.target?.result === 'string') {
+        setMarketingImage(e.target.result);
       }
     };
+    reader.onerror = () => setError('This image could not be opened. Choose another file.');
     reader.readAsDataURL(file);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       handleFileUpload(e.target.files[0]);
+      e.target.value = '';
     }
   };
 
@@ -77,17 +79,13 @@ It’s been a minute since your last silk press & steam treatment! Give your cro
   };
 
   const handleGenerate = async () => {
+    if (busy || !promoGoal.trim()) return;
     setIsGenerating(true);
     setError(null);
     try {
-      const prompt = `Write a luxury, compelling ${channel} promotional copy for a high-end salon named True Lengths.
-Target Audience: ${segment}
-Campaign Goal: ${promoGoal}
-Tone: Warm, elegant, high-converting, professional.
-Include call to action to book on the True Lengths app.`;
-
-      const data = await requestAssistant('owner', { prompt, history: [] });
-      setGeneratedContent(data.text);
+      if (!auth.currentUser) throw new Error('Sign in as the salon owner to generate copy.');
+      const text = await requestMarketingCopy({ segment, channel, title: promoGoal }, await auth.currentUser.getIdToken());
+      editDraft({ message: text });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI copy could not be generated. Your draft was kept.');
     } finally {
@@ -103,32 +101,31 @@ Include call to action to book on the True Lengths app.`;
     } catch { setError('Copy failed. Select and copy the draft text manually.'); }
   };
 
-  const handleBroadcast = async () => {
+  const handleBroadcast = async (previewOnly = false) => {
     if (isSending || isGenerating || sent || channel !== 'in-app') return;
     setIsSending(true); setError(null);
     try {
       if (!auth.currentUser) throw new Error('Sign in as the salon owner to send a campaign.');
       const token = await auth.currentUser.getIdToken();
-      const action = recipientCount === null ? 'preview' : 'send';
+      const action = previewOnly || recipientCount === null ? 'preview' : 'send';
       const result = await requestMarketing(action, { campaignId, segment, title: promoGoal, message: generatedContent }, token);
       if (action === 'preview') {
         setRecipientCount(result.delivered);
         if (!result.delivered) setError('No eligible customers match this segment. Nothing was sent.');
       } else {
-        setSent(true);
-        setDeliveryStatus(`Delivered to ${result.delivered} customer notification inbox${result.delivered === 1 ? '' : 'es'}. Customers can read it when they open the app.`);
+        setDraft((current) => ({ ...current, delivered: result.delivered }));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delivery was not confirmed. Retry without editing to avoid duplicates.');
     } finally { setIsSending(false); }
   };
 
-  const PRESET_MARKETING_PHOTOS = [
-    { label: 'Silk Press', url: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=800&q=80' },
-    { label: 'Copper Balayage', url: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=800&q=80' },
-    { label: 'Crown Braids', url: 'https://images.unsplash.com/photo-1607779097040-26e80aa78e66?auto=format&fit=crop&w=800&q=80' },
-    { label: 'Tapered Cut', url: 'https://images.unsplash.com/photo-1595476108010-b4d1f102b1b1?auto=format&fit=crop&w=800&q=80' },
-  ];
+  const handleDownload = () => {
+    const url = URL.createObjectURL(new Blob([marketingDraftText(draft)], { type: 'text/plain;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = 'true-lengths-campaign.txt'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-16">
@@ -138,12 +135,23 @@ Include call to action to book on the True Lengths app.`;
         <p className="text-xs font-semibold uppercase tracking-widest text-[#B68A4C]">Marketing Engine</p>
         <h2 className="font-serif text-2xl sm:text-3xl font-bold text-[#2D2D2D]">AI Campaign & Creative Studio</h2>
         <p className="text-xs text-[#2D2D2D]/60 mt-1">
-          Generate high-converting luxury promotional copy and pair with imagery from your camera roll or portfolio.
+          Create a campaign, review the audience, and send it to customer app inboxes. Export drafts for other channels.
         </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+          <p role="status" className="text-xs text-[#2D2D2D]/70">{saved ? 'Text draft saved on this device' : 'Draft could not be saved on this device. Download a copy to keep it.'}</p>
+          <button type="button" onClick={newCampaign} disabled={busy} className="flex items-center gap-1 text-xs font-bold text-[#8B5E34] disabled:opacity-50"><Plus className="w-4 h-4" /> New campaign</button>
+        </div>
       </div>
 
       {/* Generator Controls Grid */}
       <div className="bg-[#FAF8F5] border border-[#B68A4C]/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xs">
+        <div className="space-y-2">
+          <p className="text-xs font-bold">Start with a template</p>
+          <div className="flex flex-wrap gap-2">{MARKETING_TEMPLATES.map((template) => (
+            <button key={template.name} type="button" disabled={busy} onClick={() => editDraft({ title: template.title, message: template.message, segment: template.segment })}
+              className="rounded-xl border border-[#B68A4C]/40 px-3 py-2 text-xs text-[#8B5E34] hover:bg-[#F4F1EC] disabled:opacity-50">{template.name}</button>
+          ))}</div>
+        </div>
         
         {/* Row 1: Segment & Channel */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -151,8 +159,9 @@ Include call to action to book on the True Lengths app.`;
             <label className="block text-xs font-bold text-[#2D2D2D] mb-1.5">Target Client Segment</label>
             <select
               value={segment}
-              onChange={(e) => setSegment(e.target.value as MarketingSegment)}
-              disabled={isSending}
+              aria-label="Target client segment"
+              onChange={(e) => editDraft({ segment: e.target.value as MarketingSegment })}
+              disabled={busy}
               className="w-full bg-[#F4F1EC] border border-[#B68A4C]/30 rounded-xl px-3.5 py-2.5 text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
             >
               {MARKETING_SEGMENTS.map((value) => <option key={value} value={value}>{value}</option>)}
@@ -161,13 +170,14 @@ Include call to action to book on the True Lengths app.`;
 
           <div>
             <label className="block text-xs font-bold text-[#2D2D2D] mb-1.5">Marketing Channel</label>
-            <div className="flex bg-[#F4F1EC] p-1 rounded-xl border border-[#B68A4C]/20 text-xs">
+            <div className="grid grid-cols-2 gap-1 bg-[#F4F1EC] p-1 rounded-xl border border-[#B68A4C]/20 text-xs">
               {(['in-app', 'instagram', 'sms', 'email'] as const).map((ch) => (
                 <button
                   key={ch}
                   type="button"
-                  disabled={isSending}
-                  onClick={() => setChannel(ch)}
+                  disabled={busy}
+                  aria-pressed={channel === ch}
+                  onClick={() => { if (ch !== channel) editDraft({ channel: ch }); }}
                   className={`flex-1 py-2 font-bold rounded-lg capitalize transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     channel === ch ? 'bg-[#8B5E34] text-[#FAF8F5] shadow-xs' : 'text-[#2D2D2D]/70 hover:text-[#2D2D2D]'
                   }`}
@@ -189,9 +199,10 @@ Include call to action to book on the True Lengths app.`;
           <input
             type="text"
             maxLength={120}
-            disabled={isSending}
+            disabled={busy}
+            aria-label="Campaign goal or offer"
             value={promoGoal}
-            onChange={(e) => setPromoGoal(e.target.value)}
+            onChange={(e) => editDraft({ title: e.target.value })}
             placeholder="E.g., 15% off midweek Silk Press or Fill Friday slots"
             className="w-full bg-[#F4F1EC] border border-[#B68A4C]/30 rounded-xl px-3.5 py-2.5 text-xs text-[#2D2D2D] focus:outline-none focus:ring-2 focus:ring-[#8B5E34]"
           />
@@ -207,6 +218,7 @@ Include call to action to book on the True Lengths app.`;
             {marketingImage && (
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => setMarketingImage(null)}
                 className="text-[11px] text-rose-600 font-semibold hover:underline flex items-center gap-1"
               >
@@ -219,7 +231,8 @@ Include call to action to book on the True Lengths app.`;
           <input
             type="file"
             ref={fileInputRef}
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={busy}
             onChange={handleFileChange}
             className="hidden"
           />
@@ -229,7 +242,9 @@ Include call to action to book on the True Lengths app.`;
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { if (!busy) fileInputRef.current?.click(); }}
+            role="button" tabIndex={busy ? -1 : 0} aria-label="Choose campaign photo" aria-disabled={busy}
+            onKeyDown={(event) => { if (!busy && ['Enter', ' '].includes(event.key)) { event.preventDefault(); fileInputRef.current?.click(); } }}
             className={`relative rounded-2xl border-2 border-dashed p-5 transition-all cursor-pointer text-center flex flex-col items-center justify-center space-y-2 ${
               isDragging
                 ? 'border-[#8B5E34] bg-[#8B5E34]/10'
@@ -269,7 +284,7 @@ Include call to action to book on the True Lengths app.`;
         {/* Generate Action Button */}
         <button
           onClick={handleGenerate}
-          disabled={isGenerating || isSending}
+          disabled={busy || !promoGoal.trim()}
           className="w-full bg-[#8B5E34] hover:bg-[#7A5A3A] text-[#FAF8F5] font-bold py-3.5 rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
         >
           {isGenerating ? (
@@ -287,21 +302,24 @@ Include call to action to book on the True Lengths app.`;
 
       {/* Campaign Mockup & Live Preview Card */}
       <div className="bg-[#2D2D2D] text-[#FAF8F5] border border-[#B68A4C]/30 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xl relative">
-        <div className="flex justify-between items-center border-b border-[#B68A4C]/20 pb-4">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-[#B68A4C]/20 pb-4">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#B68A4C] flex items-center gap-2">
             {channel === 'instagram' && <Instagram className="w-4 h-4 text-rose-400" />}
             {channel === 'sms' && <Smartphone className="w-4 h-4 text-emerald-400" />}
             {channel === 'email' && <Mail className="w-4 h-4 text-amber-400" />}
-            <span>{channel.toUpperCase()} Broadcast Campaign Mockup</span>
+            <span>{channel === 'in-app' ? 'Customer inbox message' : `${channel.toUpperCase()} draft`}</span>
           </span>
 
-          <button
+          <div className="flex flex-wrap gap-2"><button
+            type="button" onClick={handleDownload}
+            className="text-xs font-semibold text-[#B68A4C] bg-[#3D3D3D] px-3 py-1.5 rounded-xl border border-[#B68A4C]/30 flex items-center gap-1"
+          ><Download className="w-3.5 h-3.5" /> Download draft</button><button
             onClick={handleCopy}
             className="text-xs font-semibold text-[#B68A4C] hover:text-[#FAF8F5] bg-[#3D3D3D] px-3.5 py-1.5 rounded-xl border border-[#B68A4C]/30 transition-all flex items-center gap-1.5 cursor-pointer"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied!' : 'Copy Copywriting'}</span>
-          </button>
+            <span>{copied ? 'Copied!' : 'Copy message'}</span>
+          </button></div>
         </div>
 
         {/* Live Channel Mockup Box */}
@@ -333,10 +351,11 @@ Include call to action to book on the True Lengths app.`;
             {/* AI Copy text */}
             <label className="block text-xs space-y-2">
               <span>Campaign message</span>
-              <textarea value={generatedContent} onChange={(event) => setGeneratedContent(event.target.value)}
+              <textarea value={generatedContent} onChange={(event) => editDraft({ message: event.target.value })}
                 maxLength={4000} disabled={isSending || isGenerating} rows={9}
                 className="w-full rounded-xl bg-[#2D2D2D] p-3 text-xs leading-relaxed text-[#FAF8F5]" />
             </label>
+            <p className="text-[11px] text-[#FAF8F5]/60">{generatedContent.length.toLocaleString()} / 4,000 characters{channel === 'sms' ? ' · Aim for 160 characters for a short SMS draft.' : ''}</p>
           </div>
         </div>
 
@@ -347,14 +366,17 @@ Include call to action to book on the True Lengths app.`;
               : 'Draft only. Copy this content to your connected publishing or messaging service.'}
           </p>
           <button
-            onClick={handleBroadcast}
+            onClick={() => void handleBroadcast()}
             disabled={channel !== 'in-app' || isSending || isGenerating || sent || recipientCount === 0 || !generatedContent.trim() || !promoGoal.trim()}
             className="w-full sm:w-auto bg-[#B68A4C] hover:bg-[#8B5E34] disabled:opacity-50 text-[#FAF8F5] font-bold text-xs px-6 py-3 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <Send className="w-3.5 h-3.5" /> {isSending ? 'Checking delivery…' : sent ? 'Delivered' : channel !== 'in-app' ? 'Copy draft to send externally' : recipientCount === null ? 'Preview customer audience' : `Send to ${recipientCount} customer inbox${recipientCount === 1 ? '' : 'es'}`}
           </button>
         </div>
-        {recipientCount !== null && !sent && <p className="text-xs">{recipientCount} eligible customers match this segment. Confirm to send the message to their app inboxes.</p>}
+        {recipientCount !== null && !sent && <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <p>{recipientCount} eligible customers match this segment. {recipientCount ? 'Confirm to send the message to their app inboxes.' : 'Try All Customers or refresh after new customer activity.'}</p>
+          <button type="button" disabled={busy} onClick={() => void handleBroadcast(true)} className="underline text-[#B68A4C] disabled:opacity-50">Refresh audience</button>
+        </div>}
         {error && <p role="alert" className="text-sm text-rose-200">{error}</p>}
         {deliveryStatus && <p role="status" className="text-sm text-emerald-200">{deliveryStatus}</p>}
       </div>
