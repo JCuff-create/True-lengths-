@@ -9,7 +9,10 @@ async function withApi(generate: Generate | null, run: (base: string) => Promise
   const app = express();
   app.use(express.json());
   for (const kind of ['customer', 'owner'] as const) {
-    app.post(`/api/ai/${kind}-assistant`, createAssistantHandler(kind, { model: DEFAULT_GEMINI_MODEL, generate }));
+    app.post(`/api/ai/${kind}-assistant`, createAssistantHandler(kind, { model: DEFAULT_GEMINI_MODEL, generate, access: {
+      timeoutMs: 1000, authorize: async () => ({ uid: 'fixture', role: 'owner', salonId: 'fixture-salon' }),
+      reserve: async () => {}, businessData: async () => ({ totalRevenue: 125 }),
+    } }));
   }
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));

@@ -6,6 +6,7 @@
  */
 import { runInventoryChecks } from './inventory.persistence.mjs';
 import { runMarketingChecks } from './marketing.persistence.mjs';
+import { runAiSecurityChecks } from './aiSecurity.persistence.mjs';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
@@ -579,6 +580,7 @@ async function main() {
 
   await runInventoryChecks(testEnv, check);
   await runMarketingChecks(testEnv, check);
+  await runAiSecurityChecks(testEnv, check);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   await testEnv.cleanup();

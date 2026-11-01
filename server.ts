@@ -12,6 +12,7 @@ import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import firebaseConfigJson from './firebase-applet-config.json';
 import { canUploadAvatar } from './src/server/avatarAuthorization';
 import { createMarketingHandler, createMarketingCopyHandler } from './src/server/marketing';
+import { createAiAccess, aiLimits } from './src/server/aiAccess';
 
 // Runtime-injected values take precedence; Cursor/local development can use either file.
 loadEnv({ path: ['.env.local', '.env'], quiet: true });
@@ -202,10 +203,11 @@ const assistantOptions = {
   model: aiConfig.model,
   generate: aiClient ? (request: GenerateContentParameters) => aiClient.models.generateContent(request) : null,
 };
-app.post('/api/ai/customer-assistant', createAssistantHandler('customer', assistantOptions));
-app.post('/api/ai/owner-assistant', createAssistantHandler('owner', assistantOptions));
+const aiAccess = createAiAccess({ db: adminDb, verifyToken: (token) => adminAuth.verifyIdToken(token, true), limits: aiLimits(process.env) });
+app.post('/api/ai/customer-assistant', createAssistantHandler('customer', { ...assistantOptions, access: aiAccess }));
+app.post('/api/ai/owner-assistant', createAssistantHandler('owner', { ...assistantOptions, access: aiAccess }));
 app.post('/api/marketing/copy', createMarketingCopyHandler({
-  db: adminDb, verifyToken: (token) => adminAuth.verifyIdToken(token, true), ...assistantOptions,
+  access: aiAccess, ...assistantOptions,
 }));
 
 // Healthcheck API

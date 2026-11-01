@@ -64,7 +64,7 @@ export const OwnerAIAssistant: React.FC<OwnerAIAssistantProps> = ({ metrics }) =
     setIsLoading(true);
 
     try {
-      const data = await requestAssistant('owner', { prompt: text, history: messages, businessData: metrics });
+      const data = await requestAssistant('owner', { prompt: text, history: messages });
       const assistantMsg: ChatMessage = {
         id: `oa-${Date.now()}`,
         sender: 'assistant',

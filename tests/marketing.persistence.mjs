@@ -7,6 +7,7 @@ import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnaps
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { createMarketingHandler, createMarketingCopyHandler } from '../src/server/marketing.ts';
 import { markNotification, clearNotification } from '../src/lib/notificationInbox.ts';
+import { createAiAccess } from '../src/server/aiAccess.ts';
 
 export async function runMarketingChecks(testEnv, check) {
   if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Marketing tests require the Firestore emulator.');
@@ -31,11 +32,12 @@ export async function runMarketingChecks(testEnv, check) {
   };
   const app = express();
   app.use(express.json());
+  const access = createAiAccess({ db, verifyToken });
   const copyRequests = [];
   const generate = async (request) => { copyRequests.push(request); return { text: 'Explore our services and book your next visit.\nSUGGESTED_FOLLOWUPS: ["ignore"]' }; };
-  app.post('/api/marketing/copy', createMarketingCopyHandler({ db, verifyToken, model: 'fixture-model', generate }));
-  app.post('/api/marketing/copy-unconfigured', createMarketingCopyHandler({ db, verifyToken, model: 'fixture-model', generate: null }));
-  app.post('/api/marketing/copy-failed', createMarketingCopyHandler({ db, verifyToken, model: 'fixture-model', generate: async () => { throw Object.assign(new Error('private-provider-error'), { status: 429 }); } }));
+  app.post('/api/marketing/copy', createMarketingCopyHandler({ access, model: 'fixture-model', generate }));
+  app.post('/api/marketing/copy-unconfigured', createMarketingCopyHandler({ access, model: 'fixture-model', generate: null }));
+  app.post('/api/marketing/copy-failed', createMarketingCopyHandler({ access, model: 'fixture-model', generate: async () => { throw Object.assign(new Error('private-provider-error'), { status: 429 }); } }));
   for (const action of ['preview', 'send']) app.post(`/api/marketing/${action}`, createMarketingHandler({ db, verifyToken, preview: action === 'preview' }));
   const failingStore = new Proxy(db, { get(target, key) {
     if (key === 'runTransaction') return async () => { throw new Error('Emulated storage failure'); };

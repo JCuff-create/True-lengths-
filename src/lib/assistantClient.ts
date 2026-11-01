@@ -1,4 +1,5 @@
-import type { ChatMessage, RevenueMetric } from '../types';
+import type { ChatMessage } from '../types';
+import { auth } from './firebase';
 
 type AssistantReply = { text: string; suggestions: string[] };
 
@@ -6,17 +7,26 @@ export class AssistantRequestError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
 }
 
+async function firebaseToken(): Promise<string> {
+  if (!auth.currentUser) throw new AssistantRequestError('AI_AUTH_REQUIRED', 'Sign in to use the AI assistant.');
+  return auth.currentUser.getIdToken();
+}
+
 export async function requestAssistant(
   kind: 'customer' | 'owner',
-  input: { prompt: string; history: ChatMessage[]; businessData?: RevenueMetric },
+  input: { prompt: string; history: ChatMessage[] },
   fetcher: typeof fetch = fetch,
+  getToken: () => Promise<string> = firebaseToken,
 ): Promise<AssistantReply> {
+  let token: string;
+  try { token = await getToken(); if (!token) throw new Error('Missing token'); }
+  catch { throw new AssistantRequestError('AI_AUTH_REQUIRED', 'Your session could not be verified. Sign in again.'); }
   let response: Response;
   try {
     response = await fetcher(`/api/ai/${kind}-assistant`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ prompt: input.prompt, history: input.history }),
       signal: AbortSignal.timeout(35000),
     });
   } catch (error) {
