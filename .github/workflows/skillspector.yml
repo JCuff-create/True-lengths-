@@ -1,0 +1,46 @@
+name: SkillSpector
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/SKILL.md'
+      - '.agents/skills/**'
+      - '.codex/skills/**'
+      - '.claude/skills/**'
+      - '.github/workflows/skillspector.yml'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Discover tracked agent skills
+        id: discover
+        shell: bash
+        run: |
+          git ls-files -z -- 'SKILL.md' ':(glob)**/SKILL.md' > "$RUNNER_TEMP/skill-files"
+          if [[ -s "$RUNNER_TEMP/skill-files" ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No tracked SKILL.md files; nothing to scan." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.discover.outputs.found == 'true'
+        with:
+          python-version: '3.12'
+      - name: Scan skill directories without an LLM
+        if: steps.discover.outputs.found == 'true'
+        shell: bash
+        run: |
+          python -m pip install 'git+https://github.com/NVIDIA/SkillSpector.git@e48d771a26f7398b36256ceb8d8f94adce3d5c44'
+          while IFS= read -r -d '' skill; do
+            if [[ ! -f "$skill" || -L "$skill" ]]; then
+              echo "Expected a regular tracked skill manifest."
+              exit 1
+            fi
+            skillspector scan "./$(dirname -- "$skill")" --no-llm
+          done < "$RUNNER_TEMP/skill-files"
